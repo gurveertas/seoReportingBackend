@@ -1,15 +1,18 @@
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.integrations.ga4.client import get_ga4_client
 from app.integrations.ga4.service import get_ga4_report
+from app.api.v1.routers.client_routes import get_user_integration_property
+from app.middlewares.protect_route import protect_route
 from app.requestModels.req_models import GA4ReportRequest
 
 logger = logging.getLogger(__name__)
-ga4_router = APIRouter()
+ga4_router = APIRouter(dependencies=[Depends(protect_route)])
 
 
 def _credentials_path() -> str:
@@ -29,12 +32,20 @@ def get_ga4_health():
 
 
 @ga4_router.post("/report")
-def fetch_ga4_report(request: GA4ReportRequest):
+def fetch_ga4_report(
+    request: GA4ReportRequest,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    property_id = get_user_integration_property(
+        user.get("id"),
+        "ga4",
+        "property_id",
+    )
     try:
         client = get_ga4_client(_credentials_path())
         response = get_ga4_report(
             client=client,
-            property_id=request.property_id,
+            property_id=property_id,
             start_date=request.start_date,
             end_date=request.end_date,
             dimensions=request.dimensions,

@@ -30,7 +30,6 @@ class LoginRequest(BaseModel):
 
 
 class GA4ReportRequest(BaseModel):
-    property_id: str
     start_date: str
     end_date: str
     dimensions: List[str] = Field(default_factory=list)
@@ -40,12 +39,10 @@ class GA4ReportRequest(BaseModel):
 
 
 class SheetsDataRequest(BaseModel):
-    spreadsheet_id: str
     range_name: str
 
 
 class GSCSearchRequest(BaseModel):
-    site_url: str
     start_date: str
     end_date: str
     dimensions: Optional[List[str]] = None

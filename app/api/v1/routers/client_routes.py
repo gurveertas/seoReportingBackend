@@ -1,20 +1,80 @@
 import hashlib
 import secrets
 from datetime import datetime, timezone
+from typing import Literal
 from dotenv import load_dotenv
 
 from fastapi import APIRouter, Response, Cookie
 from fastapi import HTTPException, status
+from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from app.requestModels.req_models import RegisterRequest, LoginRequest
 from app.database.connection import get_database
+from app.models.client import Client
 import jwt
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 import os
 
 load_dotenv()
 client_router = APIRouter()
+
+
+def get_user_integration_property(
+    user_id: str | None,
+    integration_name: Literal["ga4", "gsc", "google_sheets"],
+    property_key: Literal["property_id", "property_url"],
+) -> str:
+    if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The authentication token does not identify a valid client.",
+        )
+
+    client = get_database()["clients"].find_one(
+        {"_id": ObjectId(user_id)},
+        {"integrations": 1},
+    )
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The authenticated client was not found.",
+        )
+
+    integration = (client.get("integrations") or {}).get(integration_name)
+    if not integration or not integration.get("enabled", True):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"The {integration_name} integration is not enabled for this client.",
+        )
+
+    property_value = integration.get(property_key)
+    if not property_value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"The {integration_name} integration has no configured {property_key}.",
+        )
+
+    return property_value
+
+
+def save_client(data: Client):
+    db = get_database()
+    document = data.model_dump()
+    client_id = document["client_id"]
+    created_at = document.pop("createdAt", None)
+    document["updatedAt"] = datetime.now(timezone.utc)
+    return db.clients.update_one(
+        {"client_id": client_id},
+        {
+            "$set": document,
+            "$setOnInsert": {
+                "createdAt": created_at or datetime.now(timezone.utc)
+            },
+        },
+        upsert=True,
+    )
+
 
 def _hash_password(password: str) -> str:
     iterations = 600_000
@@ -115,7 +175,7 @@ def login_client(client: LoginRequest, response: Response):
     return {"status": True, "message": "Client logged in successfully"}
 
 @client_router.get('/auth/verify-token', status_code=status.HTTP_200_OK)
-def verify_token(token: str | None = Cookie(default=None)):
+def verify_token(token: str | None = Cookie(default=None, alias="access_token")):
     try:
         if not token:
             raise HTTPException(
@@ -129,3 +189,8 @@ def verify_token(token: str | None = Cookie(default=None)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired.",
         )
+    except InvalidTokenError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token.",
+        ) from error

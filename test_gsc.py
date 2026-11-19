@@ -4,9 +4,8 @@ from app.integrations.gsc.service import (
     get_search_performance
 )
 from app.models.gsc import GSCMetrics, GSCDocument, Period
-from app.repositories.gsc_repository import save_gsc_data
+from app.api.v1.routers.gsc_routes import save_gsc_data
 from app.reports.gsc_report import generate_gsc_pdf
-# from app.repositories.gsc_repository import save_gsc_data
 
 CREDENTIALS_PATH = "app/integrations/gsc/credentials/service-account.json"
 
