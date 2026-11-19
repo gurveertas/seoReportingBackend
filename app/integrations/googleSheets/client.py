@@ -1,15 +1,16 @@
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
+
+from app.integrations.service_account import get_service_account_credentials
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly"
 ]
 
-def get_sheets_client(credentials_path: str):
-
-    credentials = service_account.Credentials.from_service_account_file(
+def get_sheets_client(credentials_path: str | None = None):
+    credentials = get_service_account_credentials(
         credentials_path,
-        scopes=SCOPES
+        "GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON",
+        SCOPES,
     )
 
     return build(
