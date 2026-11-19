@@ -8,15 +8,15 @@ class GSCIntegration(BaseModel):
 
 class GA4Integration(BaseModel):
     enabled : bool = True
-    property_url : str
+    property_id : str
 class GoogleSheetsIntegration(BaseModel):
     enabled : bool = True
-    property_url : str
+    property_id : str
 
 class Integrations(BaseModel):
     gsc: GSCIntegration = GSCIntegration(enabled=True, property_url="")
-    ga4: GA4Integration = GA4Integration(enabled=True, property_url="")
-    google_sheets: GoogleSheetsIntegration = GoogleSheetsIntegration(enabled=True, property_url="")
+    ga4: GA4Integration = GA4Integration(enabled=True, property_id="")
+    google_sheets: GoogleSheetsIntegration = GoogleSheetsIntegration(enabled=True, property_id="")
 
 class RegisterRequest(BaseModel):
     username: str
