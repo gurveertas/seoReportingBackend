@@ -6,6 +6,12 @@ from app.api.v1.routers.gsc_routes import gsc_router
 
 api_router = APIRouter()
 
+
+@api_router.get("/health", tags=["Health"])
+def get_api_health():
+    return {"status": True, "message": "API is healthy"}
+
+
 api_router.include_router(gsc_router, prefix="/gsc", tags=["GSC"])
 api_router.include_router(ga4_router, prefix="/ga4", tags=["GA4"])
 api_router.include_router(

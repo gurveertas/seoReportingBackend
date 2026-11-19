@@ -1,10 +1,10 @@
 import hashlib
 import secrets
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 from dotenv import load_dotenv
 
-from fastapi import APIRouter, Response, Cookie
+from fastapi import APIRouter, Cookie, Depends, Response
 from fastapi import HTTPException, status
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
@@ -12,6 +12,7 @@ from pymongo.errors import DuplicateKeyError
 from app.requestModels.req_models import RegisterRequest, LoginRequest
 from app.database.connection import get_database
 from app.models.client import Client
+from app.middlewares.protect_route import protect_route
 import jwt
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 import os
@@ -194,3 +195,22 @@ def verify_token(token: str | None = Cookie(default=None, alias="access_token"))
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token.",
         ) from error
+
+
+@client_router.get("/auth/me")
+def get_current_user(user: dict[str, Any] = Depends(protect_route)):
+    user_data = {
+        "id": user.get("id"),
+        "username": user.get("username"),
+        "fullname": user.get("fullname"),
+    }
+    if not all(
+        isinstance(value, str) and value
+        for value in user_data.values()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The authentication token does not contain valid user data.",
+        )
+
+    return user_data

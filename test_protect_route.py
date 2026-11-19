@@ -15,6 +15,23 @@ class ProtectRouteTests(unittest.TestCase):
         "/api/v1/google-sheets/health",
     )
 
+    def test_frontend_health_route_is_public(self):
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/v1/health",
+                headers={"Origin": "http://localhost:5174"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"status": True, "message": "API is healthy"},
+        )
+        self.assertEqual(
+            response.headers["access-control-allow-origin"],
+            "http://localhost:5174",
+        )
+
     def test_all_integration_routes_require_authentication(self):
         requests = (
             ("GET", "/api/v1/gsc/health", None),
@@ -75,6 +92,39 @@ class ProtectRouteTests(unittest.TestCase):
                 response = client.get("/api/v1/gsc/health")
 
         self.assertEqual(response.status_code, 200)
+
+    def test_me_returns_user_data_from_the_auth_cookie(self):
+        secret = "test-secret-that-is-at-least-32-bytes"
+        token = jwt.encode(
+            {
+                "id": "user-id",
+                "username": "test-user",
+                "fullname": "Test User",
+            },
+            secret,
+            algorithm="HS256",
+        )
+
+        with patch.dict(os.environ, {"JWT_SECRET": secret, "JWT_ALG": "HS256"}):
+            with TestClient(app) as client:
+                client.cookies.set("access_token", token)
+                response = client.get("/api/v1/me")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": "user-id",
+                "username": "test-user",
+                "fullname": "Test User",
+            },
+        )
+
+    def test_me_requires_authentication(self):
+        with TestClient(app) as client:
+            response = client.get("/api/v1/me")
+
+        self.assertEqual(response.status_code, 401)
 
     def test_invalid_bearer_token_is_rejected_for_all_integrations(self):
         secret = "test-secret-that-is-at-least-32-bytes"
