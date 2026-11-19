@@ -9,7 +9,7 @@ contourpy==1.4.0
 cryptography==50.0.2
 cycler==0.12.1
 dnspython==2.9.2
-fastapi==0.163.2
+fastapi[standard]
 fonttools==4.68.0
 google-analytics-data==0.23.3
 google-api-core==2.44.0
