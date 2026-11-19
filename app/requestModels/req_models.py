@@ -2,10 +2,21 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+class GSCIntegration(BaseModel):
+    enabled : bool = True
+    property_url : str
+
+class GA4Integration(BaseModel):
+    enabled : bool = True
+    property_url : str
+class GoogleSheetsIntegration(BaseModel):
+    enabled : bool = True
+    property_url : str
+
 class Integrations(BaseModel):
-    gsc: bool = True
-    ga4: bool = True
-    google_sheets: bool = True
+    gsc: GSCIntegration = GSCIntegration(enabled=True, property_url="")
+    ga4: GA4Integration = GA4Integration(enabled=True, property_url="")
+    google_sheets: GoogleSheetsIntegration = GoogleSheetsIntegration(enabled=True, property_url="")
 
 class RegisterRequest(BaseModel):
     username: str

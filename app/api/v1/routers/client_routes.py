@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Response, Cookie
 from fastapi import HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
@@ -64,6 +64,7 @@ def register_client(client: RegisterRequest, response: Response):
         "username": client.username,
         "fullname": client.fullname,
         "password_hash": _hash_password(client.password),
+        "integrations": client.integrations.model_dump(),
         "created_at": datetime.now(timezone.utc),
     }
 
@@ -87,7 +88,7 @@ def register_client(client: RegisterRequest, response: Response):
         "id": str(result.inserted_id),
         "username": client.username,
         "fullname": client.fullname,
-        "integrations": client.integrations
+        "integrations": client.integrations.model_dump(),
     }
 
 @client_router.post('/auth/login', status_code=status.HTTP_200_OK)
@@ -112,3 +113,19 @@ def login_client(client: LoginRequest, response: Response):
         _gen_token(genTokenData, response)
     
     return {"status": True, "message": "Client logged in successfully"}
+
+@client_router.get('/auth/verify-token', status_code=status.HTTP_200_OK)
+def verify_token(token: str | None = Cookie(default=None)):
+    try:
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token is missing from the request.",
+            )
+        decoded_token = jwt.decode(token, os.getenv('JWT_SECRET'), algorithms=[os.getenv('JWT_ALG')])
+        return {"status": True, "message": "Token is valid", "token_data": decoded_token}
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired.",
+        )

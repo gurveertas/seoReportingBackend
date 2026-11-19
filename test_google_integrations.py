@@ -16,7 +16,7 @@ from app.integrations.googleSheets.service import get_sheet_data
 GA4_CREDENTIALS = "app/integrations/ga4/credentials/service-account.json"
 SHEETS_CREDENTIALS = "app/integrations/googleSheets/credentials/service-account.json"
 
-GA4_PROPERTY_ID = os.getenv("GA4_PROPERTY_ID", "YOUR_GA4_PROPERTY_ID")
+GA4_PROPERTY_ID = "565126740"
 
 SPREADSHEET_ID = "1X0yjGxLbbb6ThX6aVT3m5Jyl5S8xikuZrhWtHRomjS0"
 SHEET_RANGE = "Sheet1!A1:F20"
