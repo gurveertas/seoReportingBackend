@@ -17,8 +17,8 @@ class RegisterClientTests(unittest.TestCase):
 
     def _registration_request(self):
         return RegisterRequest(
-            username="nikhil",
-            fullname="Nikhil Ads",
+            username="nikhilTas",
+            fullname="Nikhil",
             password="example-password",
             integrations={
                 "gsc": {
@@ -27,11 +27,11 @@ class RegisterClientTests(unittest.TestCase):
                 },
                 "ga4": {
                     "enabled": True,
-                    "property_url": "property-123",
+                    "property_id": "565126740",
                 },
                 "google_sheets": {
-                    "enabled": False,
-                    "property_url": "spreadsheet-123",
+                    "enabled": True,
+                    "property_id": "1X0yjGxLbbb6ThX6aVT3m5Jyl5S8xikuZrhWtHRomjS0",
                 },
             },
         )
@@ -56,8 +56,8 @@ class RegisterClientTests(unittest.TestCase):
             response,
             {
                 "id": "user-id",
-                "username": "nikhil",
-                "fullname": "Nikhil Ads",
+                "username": "nikhilTas",
+                "fullname": "Nikhil",
                 "integrations": request.integrations.model_dump(),
             },
         )
