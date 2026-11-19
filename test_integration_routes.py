@@ -19,8 +19,10 @@ class IntegrationRouteTests(unittest.TestCase):
     @patch("app.api.v1.routers.ga4_routes.get_ga4_report")
     @patch("app.api.v1.routers.ga4_routes.get_ga4_client")
     @patch("app.api.v1.routers.ga4_routes.get_user_integration_property")
+    @patch("app.api.v1.routers.ga4_routes.get_database")
     def test_ga4_report_returns_json_friendly_rows(
         self,
+        get_database,
         get_integration_property,
         get_client,
         get_report,
@@ -52,6 +54,9 @@ class IntegrationRouteTests(unittest.TestCase):
             result["rows"],
             [{"dimensions": {"date": "20261118"}, "metrics": {"sessions": "12"}}],
         )
+        self.assertEqual(result["record_id"], str(
+            get_database.return_value["ga4_reports"].insert_one.return_value.inserted_id
+        ))
         get_report.assert_called_once_with(
             client=get_client.return_value,
             property_id="db-property-1",
@@ -65,14 +70,22 @@ class IntegrationRouteTests(unittest.TestCase):
             "ga4",
             "property_id",
         )
+        stored_record = (
+            get_database.return_value["ga4_reports"].insert_one.call_args.args[0]
+        )
+        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["property_id"], "db-property-1")
+        self.assertEqual(stored_record["rows"], result["rows"])
 
     @patch("app.api.v1.routers.google_sheets_routes.get_sheet_data")
     @patch("app.api.v1.routers.google_sheets_routes.get_sheets_client")
     @patch(
         "app.api.v1.routers.google_sheets_routes.get_user_integration_property"
     )
+    @patch("app.api.v1.routers.google_sheets_routes.get_database")
     def test_sheets_values_returns_data(
         self,
+        get_database,
         get_integration_property,
         get_client,
         get_data,
@@ -87,6 +100,13 @@ class IntegrationRouteTests(unittest.TestCase):
 
         self.assertEqual(result["spreadsheet_id"], "db-sheet-1")
         self.assertEqual(result["values"], [["name"], ["value"]])
+        stored_record = (
+            get_database.return_value["google_sheets_reports"]
+            .insert_one.call_args.args[0]
+        )
+        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["spreadsheet_id"], "db-sheet-1")
+        self.assertEqual(stored_record["values"], result["values"])
         get_data.assert_called_once_with(
             service=get_client.return_value,
             spreadsheet_id="db-sheet-1",
@@ -100,19 +120,32 @@ class IntegrationRouteTests(unittest.TestCase):
 
     @patch("app.api.v1.routers.gsc_routes.get_gsc_sites")
     @patch("app.api.v1.routers.gsc_routes.get_gsc_client")
-    def test_gsc_sites_returns_accessible_sites(self, get_client, get_sites):
+    @patch("app.api.v1.routers.gsc_routes.get_database")
+    def test_gsc_sites_returns_accessible_sites(
+        self,
+        get_database,
+        get_client,
+        get_sites,
+    ):
         get_sites.return_value = [{"siteUrl": "https://example.com/"}]
 
-        result = fetch_gsc_sites()
+        result = fetch_gsc_sites(user={"id": "authenticated-user-id"})
 
         self.assertEqual(result["sites"], [{"siteUrl": "https://example.com/"}])
+        stored_record = (
+            get_database.return_value["gsc_sites"].insert_one.call_args.args[0]
+        )
+        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["sites"], result["sites"])
         get_sites.assert_called_once_with(get_client.return_value)
 
     @patch("app.api.v1.routers.gsc_routes.get_search_performance")
     @patch("app.api.v1.routers.gsc_routes.get_gsc_client")
     @patch("app.api.v1.routers.gsc_routes.get_user_integration_property")
+    @patch("app.api.v1.routers.gsc_routes.get_database")
     def test_gsc_search_performance_forwards_request(
         self,
+        get_database,
         get_integration_property,
         get_client,
         get_data,
@@ -131,6 +164,13 @@ class IntegrationRouteTests(unittest.TestCase):
 
         self.assertEqual(result["site_url"], "https://db-example.com/")
         self.assertEqual(result["rows"], [{"clicks": 2}])
+        stored_record = (
+            get_database.return_value["gsc_search_reports"]
+            .insert_one.call_args.args[0]
+        )
+        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["site_url"], result["site_url"])
+        self.assertEqual(stored_record["rows"], result["rows"])
         get_data.assert_called_once_with(
             service=get_client.return_value,
             site_url="https://db-example.com/",

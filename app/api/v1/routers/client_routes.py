@@ -197,7 +197,8 @@ def verify_token(token: str | None = Cookie(default=None, alias="access_token"))
         ) from error
 
 
-@client_router.get("/auth/me")
+@client_router.get("/me")
+@client_router.get("/auth/me", include_in_schema=False)
 def get_current_user(user: dict[str, Any] = Depends(protect_route)):
     user_data = {
         "id": user.get("id"),

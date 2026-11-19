@@ -11,6 +11,7 @@ from app.api.v1.routers.client_routes import get_user_integration_property
 from app.database.connection import get_database
 from app.middlewares.protect_route import protect_route
 from app.models.gsc import GSCDocument
+from app.models.integration_data import GSCSearchReportRecord, GSCSitesRecord
 from app.requestModels.req_models import GSCSearchRequest
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ async def get_gsc_health():
 
 
 @gsc_router.get("/sites")
-def fetch_gsc_sites():
+def fetch_gsc_sites(user: dict[str, Any] = Depends(protect_route)):
     try:
         client = get_gsc_client(_credentials_path())
         sites = get_gsc_sites(client)
@@ -61,7 +62,20 @@ def fetch_gsc_sites():
             status_code=502,
             detail="Unable to retrieve GSC sites.",
         ) from error
-    return {"sites": sites}
+
+    record = GSCSitesRecord(user_id=user["id"], sites=sites)
+    try:
+        insert_result = get_database()["gsc_sites"].insert_one(
+            record.model_dump()
+        )
+    except Exception as error:
+        logger.exception("Unable to store GSC sites")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to store GSC sites.",
+        ) from error
+
+    return {"sites": sites, "record_id": str(insert_result.inserted_id)}
 
 
 @gsc_router.post("/search-performance")
@@ -89,4 +103,28 @@ def fetch_gsc_search_performance(
             status_code=502,
             detail="Unable to retrieve GSC search performance.",
         ) from error
-    return {"site_url": site_url, "rows": rows}
+
+    record = GSCSearchReportRecord(
+        user_id=user["id"],
+        site_url=site_url,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        dimensions=request.dimensions,
+        rows=rows,
+    )
+    try:
+        insert_result = get_database()["gsc_search_reports"].insert_one(
+            record.model_dump()
+        )
+    except Exception as error:
+        logger.exception("Unable to store GSC search performance data")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to store GSC search performance.",
+        ) from error
+
+    return {
+        "site_url": site_url,
+        "rows": rows,
+        "record_id": str(insert_result.inserted_id),
+    }

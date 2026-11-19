@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.integrations.ga4.client import get_ga4_client
 from app.integrations.ga4.service import get_ga4_report
 from app.api.v1.routers.client_routes import get_user_integration_property
+from app.database.connection import get_database
 from app.middlewares.protect_route import protect_route
+from app.models.integration_data import GA4ReportRecord
 from app.requestModels.req_models import GA4ReportRequest
 
 logger = logging.getLogger(__name__)
@@ -73,9 +75,31 @@ def fetch_ga4_report(
         }
         for row in response.rows
     ]
+    record = GA4ReportRecord(
+        user_id=user["id"],
+        property_id=property_id,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        dimension_headers=dimension_headers,
+        metric_headers=metric_headers,
+        row_count=response.row_count,
+        rows=rows,
+    )
+    try:
+        insert_result = get_database()["ga4_reports"].insert_one(
+            record.model_dump()
+        )
+    except Exception as error:
+        logger.exception("Unable to store GA4 report data")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to store the GA4 report.",
+        ) from error
+
     return {
         "dimension_headers": dimension_headers,
         "metric_headers": metric_headers,
         "row_count": response.row_count,
         "rows": rows,
+        "record_id": str(insert_result.inserted_id),
     }

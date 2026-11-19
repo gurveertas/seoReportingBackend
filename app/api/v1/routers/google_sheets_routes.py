@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.integrations.googleSheets.client import get_sheets_client
 from app.integrations.googleSheets.service import get_sheet_data
 from app.api.v1.routers.client_routes import get_user_integration_property
+from app.database.connection import get_database
 from app.middlewares.protect_route import protect_route
+from app.models.integration_data import GoogleSheetsDataRecord
 from app.requestModels.req_models import SheetsDataRequest
 
 logger = logging.getLogger(__name__)
@@ -55,8 +57,26 @@ def fetch_sheet_values(
             detail="Unable to retrieve Google Sheets values.",
         ) from error
 
+    record = GoogleSheetsDataRecord(
+        user_id=user["id"],
+        spreadsheet_id=spreadsheet_id,
+        range_name=request.range_name,
+        values=values,
+    )
+    try:
+        insert_result = get_database()["google_sheets_reports"].insert_one(
+            record.model_dump()
+        )
+    except Exception as error:
+        logger.exception("Unable to store Google Sheets data")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to store Google Sheets data.",
+        ) from error
+
     return {
         "spreadsheet_id": spreadsheet_id,
         "range": request.range_name,
         "values": values,
+        "record_id": str(insert_result.inserted_id),
     }
