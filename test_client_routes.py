@@ -1,10 +1,11 @@
 import unittest
+import os
 from unittest.mock import MagicMock, Mock, patch
 
 from fastapi import HTTPException, Response
 from pymongo.errors import DuplicateKeyError
 
-from app.api.v1.routers.client_routes import register_client
+from app.api.v1.routers.client_routes import _gen_token, register_client
 from app.requestModels.req_models import RegisterRequest
 
 
@@ -73,6 +74,23 @@ class RegisterClientTests(unittest.TestCase):
             register_client(request, Response())
 
         self.assertEqual(error.exception.status_code, 409)
+
+    def test_auth_cookie_allows_cross_site_frontend_requests(self):
+        response = Response()
+
+        with patch.dict(
+            os.environ,
+            {
+                "JWT_SECRET": "test-secret-that-is-at-least-32-bytes",
+                "JWT_ALG": "HS256",
+            },
+        ):
+            _gen_token({"id": "user-id"}, response)
+
+        cookie = response.headers["set-cookie"].lower()
+        self.assertIn("samesite=none", cookie)
+        self.assertIn("secure", cookie)
+        self.assertIn("httponly", cookie)
 
 
 if __name__ == "__main__":

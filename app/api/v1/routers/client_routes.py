@@ -95,7 +95,7 @@ def _gen_token(tokenData, response):
         response.set_cookie(
                 key="access_token",
                 value=token,
-                samesite='lax',
+                samesite='none',
                 httponly=True,
                 secure=True,
                 max_age=21600,
