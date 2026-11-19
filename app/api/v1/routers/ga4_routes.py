@@ -1,0 +1,70 @@
+import logging
+import os
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
+
+from app.integrations.ga4.client import get_ga4_client
+from app.integrations.ga4.service import get_ga4_report
+from app.requestModels.req_models import GA4ReportRequest
+
+logger = logging.getLogger(__name__)
+ga4_router = APIRouter()
+
+
+def _credentials_path() -> str:
+    default_path = (
+        Path(__file__).resolve().parents[3]
+        / "integrations"
+        / "ga4"
+        / "credentials"
+        / "service-account.json"
+    )
+    return os.getenv("GA4_CREDENTIALS_PATH", str(default_path))
+
+
+@ga4_router.get("/health")
+def get_ga4_health():
+    return {"status": True, "message": "GA4 routes are healthy"}
+
+
+@ga4_router.post("/report")
+def fetch_ga4_report(request: GA4ReportRequest):
+    try:
+        client = get_ga4_client(_credentials_path())
+        response = get_ga4_report(
+            client=client,
+            property_id=request.property_id,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            dimensions=request.dimensions,
+            metrics=request.metrics,
+        )
+    except Exception as error:
+        logger.exception("GA4 report request failed")
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to retrieve the GA4 report.",
+        ) from error
+
+    dimension_headers = [header.name for header in response.dimension_headers]
+    metric_headers = [header.name for header in response.metric_headers]
+    rows = [
+        {
+            "dimensions": {
+                name: value.value
+                for name, value in zip(dimension_headers, row.dimension_values)
+            },
+            "metrics": {
+                name: value.value
+                for name, value in zip(metric_headers, row.metric_values)
+            },
+        }
+        for row in response.rows
+    ]
+    return {
+        "dimension_headers": dimension_headers,
+        "metric_headers": metric_headers,
+        "row_count": response.row_count,
+        "rows": rows,
+    }
