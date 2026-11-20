@@ -3,9 +3,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from bson import ObjectId
 
-from app.api.v1.routers.client_routes import get_user_integration_property
+from app.api.v1.routers.client_routes import (
+    get_authenticated_workspace_id,
+    get_client_integration_property,
+    get_workspace_client,
+)
 from app.api.v1.routers.ga4_routes import _credentials_path as ga4_credentials_path
 from app.api.v1.routers.gsc_routes import _credentials_path as gsc_credentials_path
 from app.api.v1.routers.google_sheets_routes import (
@@ -66,7 +69,8 @@ def _insert_record(collection_name: str, record: Any) -> str:
 
 
 def _fetch_and_store_ga4(
-    user_id: str,
+    workspace_id: str,
+    client_id: str,
     property_id: str,
     client,
     start_date: str,
@@ -99,7 +103,8 @@ def _fetch_and_store_ga4(
     return _insert_record(
         "ga4_reports",
         GA4ReportRecord(
-            user_id=user_id,
+            workspace_id=workspace_id,
+            client_id=client_id,
             property_id=property_id,
             start_date=start_date,
             end_date=end_date,
@@ -112,7 +117,8 @@ def _fetch_and_store_ga4(
 
 
 def _fetch_and_store_gsc(
-    user_id: str,
+    workspace_id: str,
+    client_id: str,
     site_url: str,
     client,
     start_date: str,
@@ -129,7 +135,8 @@ def _fetch_and_store_gsc(
     return _insert_record(
         "gsc_search_reports",
         GSCSearchReportRecord(
-            user_id=user_id,
+            workspace_id=workspace_id,
+            client_id=client_id,
             site_url=site_url,
             start_date=start_date,
             end_date=end_date,
@@ -161,14 +168,8 @@ def _find_latest(collection: str, query: dict[str, Any]) -> dict[str, Any] | Non
     )
 
 
-def _authenticated_user_id(user: dict[str, Any]) -> str:
-    user_id = user.get("id")
-    if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
-        raise HTTPException(
-            status_code=401,
-            detail="The authentication token does not identify a valid client.",
-        )
-    return user_id
+def _authenticated_workspace_id(user: dict[str, Any]) -> str:
+    return get_authenticated_workspace_id(user)
 
 
 def _metric_value(record: dict[str, Any] | None, source: str, metric: str):
@@ -335,15 +336,22 @@ def _sheets_table(record: dict[str, Any] | None) -> dict[str, Any]:
     return {"columns": columns, "rows": rows}
 
 
-def _dashboard_from_database(user_id: str, period: Literal["monthly", "weekly"]):
+def _dashboard_from_database(
+    workspace_id: str,
+    client_id: str,
+    period: Literal["monthly", "weekly"],
+):
+    client = get_workspace_client(workspace_id, client_id)
     current_start, current_end, previous_start, previous_end = _period_bounds(period)
     current_filter = {
-        "user_id": user_id,
+        "workspace_id": workspace_id,
+        "client_id": client_id,
         "start_date": current_start.isoformat(),
         "end_date": current_end.isoformat(),
     }
     previous_filter = {
-        "user_id": user_id,
+        "workspace_id": workspace_id,
+        "client_id": client_id,
         "start_date": previous_start.isoformat(),
         "end_date": previous_end.isoformat(),
     }
@@ -382,7 +390,7 @@ def _dashboard_from_database(user_id: str, period: Literal["monthly", "weekly"])
     )
     sheets = _find_latest(
         "google_sheets_reports",
-        {"user_id": user_id},
+        {"workspace_id": workspace_id, "client_id": client_id},
     )
 
     kpis = []
@@ -462,6 +470,10 @@ def _dashboard_from_database(user_id: str, period: Literal["monthly", "weekly"])
         )[:10]
 
     return {
+        "client": {
+            "client_id": client_id,
+            "name": client["name"],
+        },
         "period": {
             "mode": period,
             "start_date": current_start.isoformat(),
@@ -529,9 +541,17 @@ def _dashboard_from_database(user_id: str, period: Literal["monthly", "weekly"])
     }
 
 
-def _refresh_ga4(user_id: str, start: date, end: date, previous_start: date, previous_end: date):
-    property_id = get_user_integration_property(
-        user_id,
+def _refresh_ga4(
+    workspace_id: str,
+    client_id: str,
+    start: date,
+    end: date,
+    previous_start: date,
+    previous_end: date,
+):
+    property_id = get_client_integration_property(
+        workspace_id,
+        client_id,
         "ga4",
         "property_id",
     )
@@ -542,7 +562,8 @@ def _refresh_ga4(user_id: str, start: date, end: date, previous_start: date, pre
         end_string = period_end.isoformat()
         record_ids.append(
             _fetch_and_store_ga4(
-                user_id,
+                workspace_id,
+                client_id,
                 property_id,
                 client,
                 start_string,
@@ -552,7 +573,8 @@ def _refresh_ga4(user_id: str, start: date, end: date, previous_start: date, pre
         )
         record_ids.append(
             _fetch_and_store_ga4(
-                user_id,
+                workspace_id,
+                client_id,
                 property_id,
                 client,
                 start_string,
@@ -564,14 +586,16 @@ def _refresh_ga4(user_id: str, start: date, end: date, previous_start: date, pre
 
 
 def _refresh_gsc(
-    user_id: str,
+    workspace_id: str,
+    client_id: str,
     start: date,
     end: date,
     previous_start: date,
     previous_end: date,
 ):
-    site_url = get_user_integration_property(
-        user_id,
+    site_url = get_client_integration_property(
+        workspace_id,
+        client_id,
         "gsc",
         "property_url",
     )
@@ -582,7 +606,8 @@ def _refresh_gsc(
         end_string = period_end.isoformat()
         record_ids.append(
             _fetch_and_store_gsc(
-                user_id,
+                workspace_id,
+                client_id,
                 site_url,
                 client,
                 start_string,
@@ -592,7 +617,8 @@ def _refresh_gsc(
         )
         record_ids.append(
             _fetch_and_store_gsc(
-                user_id,
+                workspace_id,
+                client_id,
                 site_url,
                 client,
                 start_string,
@@ -603,7 +629,8 @@ def _refresh_gsc(
     for dimension in ("query", "page"):
         record_ids.append(
             _fetch_and_store_gsc(
-                user_id,
+                workspace_id,
+                client_id,
                 site_url,
                 client,
                 start.isoformat(),
@@ -614,9 +641,10 @@ def _refresh_gsc(
     return record_ids
 
 
-def _refresh_sheets(user_id: str):
-    spreadsheet_id = get_user_integration_property(
-        user_id,
+def _refresh_sheets(workspace_id: str, client_id: str):
+    spreadsheet_id = get_client_integration_property(
+        workspace_id,
+        client_id,
         "google_sheets",
         "property_id",
     )
@@ -629,7 +657,8 @@ def _refresh_sheets(user_id: str):
     return _insert_record(
         "google_sheets_reports",
         GoogleSheetsDataRecord(
-            user_id=user_id,
+            workspace_id=workspace_id,
+            client_id=client_id,
             spreadsheet_id=spreadsheet_id,
             range_name=SHEETS_DEFAULT_RANGE,
             values=values,
@@ -656,26 +685,36 @@ def _refresh_status(function, *args) -> dict[str, Any]:
 
 
 @analytics_router.get("/monthly")
-def get_monthly_analytics(user: dict[str, Any] = Depends(protect_route)):
-    return _dashboard_from_database(_authenticated_user_id(user), "monthly")
+def get_monthly_analytics(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    workspace_id = _authenticated_workspace_id(user)
+    return _dashboard_from_database(workspace_id, client_id, "monthly")
 
 
 @analytics_router.get("/weekly")
-def get_weekly_analytics(user: dict[str, Any] = Depends(protect_route)):
-    return _dashboard_from_database(_authenticated_user_id(user), "weekly")
+def get_weekly_analytics(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    workspace_id = _authenticated_workspace_id(user)
+    return _dashboard_from_database(workspace_id, client_id, "weekly")
 
 
 @analytics_router.post("/refresh")
 def refresh_analytics(
+    client_id: str,
     period: Literal["monthly", "weekly"] = "monthly",
     user: dict[str, Any] = Depends(protect_route),
 ):
     start, end, previous_start, previous_end = _period_bounds(period)
-    user_id = _authenticated_user_id(user)
+    workspace_id = _authenticated_workspace_id(user)
     refresh = {
         "ga4": _refresh_status(
             _refresh_ga4,
-            user_id,
+            workspace_id,
+            client_id,
             start,
             end,
             previous_start,
@@ -683,14 +722,19 @@ def refresh_analytics(
         ),
         "gsc": _refresh_status(
             _refresh_gsc,
-            user_id,
+            workspace_id,
+            client_id,
             start,
             end,
             previous_start,
             previous_end,
         ),
-        "google_sheets": _refresh_status(_refresh_sheets, user_id),
+        "google_sheets": _refresh_status(
+            _refresh_sheets,
+            workspace_id,
+            client_id,
+        ),
     }
-    dashboard = _dashboard_from_database(user_id, period)
+    dashboard = _dashboard_from_database(workspace_id, client_id, period)
     dashboard["refresh"] = refresh
     return dashboard

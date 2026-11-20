@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 
 class IntegrationDataRecord(BaseModel):
-    user_id: str
+    workspace_id: str
+    client_id: str
     fetched_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

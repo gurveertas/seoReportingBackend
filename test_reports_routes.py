@@ -12,10 +12,12 @@ from app.main import app
 class ReportsRouteTests(unittest.TestCase):
     def test_monthly_and_weekly_routes_return_database_backed_pdfs(self):
         secret = "test-secret-that-is-at-least-32-bytes"
-        user_id = str(ObjectId())
+        workspace_id = str(ObjectId())
+        client_id = str(ObjectId())
         token = jwt.encode(
             {
-                "id": user_id,
+                "id": workspace_id,
+                "workspace_id": workspace_id,
                 "username": "test-user",
                 "fullname": "Test User",
             },
@@ -23,6 +25,7 @@ class ReportsRouteTests(unittest.TestCase):
             algorithm="HS256",
         )
         dashboard = {
+            "client": {"client_id": client_id, "name": "Test Client"},
             "period": {
                 "start_date": "2026-10-01",
                 "end_date": "2026-10-31",
@@ -69,7 +72,7 @@ class ReportsRouteTests(unittest.TestCase):
                             return_value=dashboard,
                         ) as get_dashboard:
                             response = client.get(
-                                f"/api/v1/reports/{period}",
+                                f"/api/v1/clients/{client_id}/reports/{period}",
                                 headers={"Authorization": f"Bearer {token}"},
                             )
 
@@ -80,12 +83,18 @@ class ReportsRouteTests(unittest.TestCase):
                             f"seo-report-{period}-2026-10-01-2026-10-31.pdf",
                             response.headers["content-disposition"],
                         )
-                        get_dashboard.assert_called_once_with(user_id, period)
+                        get_dashboard.assert_called_once_with(
+                            workspace_id,
+                            client_id,
+                            period,
+                        )
 
     def test_report_can_render_when_no_integration_data_is_stored(self):
         secret = "test-secret-that-is-at-least-32-bytes"
-        user_id = str(ObjectId())
+        workspace_id = str(ObjectId())
+        client_id = str(ObjectId())
         empty_dashboard = {
+            "client": {"client_id": client_id, "name": "Test Client"},
             "period": {},
             "sources": {},
             "kpis": [],
@@ -93,7 +102,11 @@ class ReportsRouteTests(unittest.TestCase):
             "tables": {},
         }
         token = jwt.encode(
-            {"id": user_id, "username": "test-user"},
+            {
+                "id": workspace_id,
+                "workspace_id": workspace_id,
+                "username": "test-user",
+            },
             secret,
             algorithm="HS256",
         )
@@ -108,7 +121,7 @@ class ReportsRouteTests(unittest.TestCase):
                     return_value=empty_dashboard,
                 ):
                     response = client.get(
-                        "/api/v1/reports/weekly",
+                        f"/api/v1/clients/{client_id}/reports/weekly",
                         headers={"Authorization": f"Bearer {token}"},
                     )
 

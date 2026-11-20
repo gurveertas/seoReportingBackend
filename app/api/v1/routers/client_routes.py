@@ -10,12 +10,15 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from app.requestModels.req_models import (
+    ClientCreateRequest,
     ClientUpdateRequest,
     RegisterRequest,
     LoginRequest,
+    WorkspaceUpdateRequest,
 )
 from app.database.connection import get_database
 from app.models.client import Client
+from app.models.workspace import Workspace
 from app.middlewares.protect_route import protect_route
 import jwt
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
@@ -25,27 +28,49 @@ load_dotenv()
 client_router = APIRouter()
 
 
-def get_user_integration_property(
-    user_id: str | None,
-    integration_name: Literal["ga4", "gsc", "google_sheets"],
-    property_key: Literal["property_id", "property_url"],
-) -> str:
-    if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
+def get_authenticated_workspace_id(user: dict[str, Any]) -> str:
+    workspace_id = user.get("workspace_id") or user.get("id")
+    if not isinstance(workspace_id, str) or not ObjectId.is_valid(workspace_id):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="The authentication token does not identify a valid client.",
+            detail="The authentication token does not identify a valid workspace.",
+        )
+    return workspace_id
+
+
+def get_workspace_client(workspace_id: str, client_id: str) -> dict[str, Any]:
+    if not ObjectId.is_valid(workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The authentication token does not identify a valid workspace.",
+        )
+    if not ObjectId.is_valid(client_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The client was not found in this workspace.",
         )
 
     client = get_database()["clients"].find_one(
-        {"_id": ObjectId(user_id)},
-        {"integrations": 1},
+        {
+            "_id": ObjectId(client_id),
+            "workspace_id": workspace_id,
+        }
     )
     if not client:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="The authenticated client was not found.",
+            detail="The client was not found in this workspace.",
         )
+    return client
 
+
+def get_client_integration_property(
+    workspace_id: str,
+    client_id: str,
+    integration_name: Literal["ga4", "gsc", "google_sheets"],
+    property_key: Literal["property_id", "property_url"],
+) -> str:
+    client = get_workspace_client(workspace_id, client_id)
     integration = (client.get("integrations") or {}).get(integration_name)
     if not integration or not integration.get("enabled", True):
         raise HTTPException(
@@ -63,22 +88,19 @@ def get_user_integration_property(
     return property_value
 
 
+def _client_response(client: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "client_id": str(client["_id"]),
+        "name": client["name"],
+        "integrations": client.get("integrations") or {},
+        "created_at": client.get("created_at"),
+        "updated_at": client.get("updated_at"),
+    }
+
+
 def save_client(data: Client):
-    db = get_database()
-    document = data.model_dump()
-    client_id = document["client_id"]
-    created_at = document.pop("createdAt", None)
-    document["updatedAt"] = datetime.now(timezone.utc)
-    return db.clients.update_one(
-        {"client_id": client_id},
-        {
-            "$set": document,
-            "$setOnInsert": {
-                "createdAt": created_at or datetime.now(timezone.utc)
-            },
-        },
-        upsert=True,
-    )
+    result = get_database()["clients"].insert_one(data.model_dump())
+    return result.inserted_id
 
 
 def _hash_password(password: str) -> str:
@@ -114,70 +136,96 @@ def _verify_pass(normalPass: str, hashedPass: str) -> bool:
     algorithm, iterations, salt, storedHash = hashedPass.split('$')
 
     if algorithm != "pbkdf2_sha256":
-        return {"status": False, "message": "algorithm doesn't match"}
+        return False
 
     newHash = hashlib.pbkdf2_hmac('sha256', normalPass.encode('utf-8'), bytes.fromhex(salt), int(iterations)).hex()
 
     return secrets.compare_digest(newHash, storedHash)
 
 @client_router.post("/auth/register", status_code=status.HTTP_201_CREATED)
-def register_client(client: RegisterRequest, response: Response):
-    client_col = get_database()["clients"]
-    client_col.create_index("username", unique=True)
-
-    client_document = {
-        "username": client.username,
-        "fullname": client.fullname,
-        "password_hash": _hash_password(client.password),
-        "integrations": client.integrations.model_dump(),
-        "created_at": datetime.now(timezone.utc),
-    }
-
+def register_workspace(workspace: RegisterRequest, response: Response):
+    workspace_collection = get_database()["workspaces"]
+    workspace_collection.create_index("username", unique=True)
+    workspace_document = Workspace(
+        username=workspace.username,
+        fullname=workspace.fullname,
+        password_hash=_hash_password(workspace.password),
+    ).model_dump()
     try:
-        result = client_col.insert_one(client_document)
-        print(result)
+        result = workspace_collection.insert_one(workspace_document)
     except DuplicateKeyError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username is already registered.",
         ) from error
-    genTokenData = {
-        "id": str(result.inserted_id),
-        "username": client.username,
-        "fullname": client.fullname,
-    }
-
-    token = _gen_token(genTokenData, response)
+    workspace_id = str(result.inserted_id)
+    token = _gen_token(
+        {
+            "id": workspace_id,
+            "workspace_id": workspace_id,
+            "username": workspace.username,
+            "fullname": workspace.fullname,
+        },
+        response,
+    )
+    if not isinstance(token, str):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Workspace was created, but the authentication session could not be started.",
+        )
 
     return {
-        "id": str(result.inserted_id),
-        "username": client.username,
-        "fullname": client.fullname,
-        "integrations": client.integrations.model_dump(),
+        "id": workspace_id,
+        "workspace_id": workspace_id,
+        "username": workspace.username,
+        "fullname": workspace.fullname,
+        "clients": [],
     }
 
 @client_router.post('/auth/login', status_code=status.HTTP_200_OK)
-def login_client(client: LoginRequest, response: Response):
+def login_workspace(workspace: LoginRequest, response: Response):
     db = get_database()
-    client_col = db['clients']
-    existingClient = client_col.find_one({"username": client.username})
-    if not existingClient:
-        return {"status": False, "message": "User not found in DB"}
-    pass_check = _verify_pass(client.password, existingClient['password_hash'])
+    workspace_collection = db["workspaces"]
+    existing_workspace = workspace_collection.find_one(
+        {"username": workspace.username}
+    )
+    if not existing_workspace:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password.",
+        )
+    pass_check = _verify_pass(
+        workspace.password,
+        existing_workspace["password_hash"],
+    )
     if not pass_check:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid username or password"
+            detail="Invalid username or password.",
         )
-    if pass_check:
-        genTokenData = {
-            "id" : str(existingClient['_id']),
-            "username": existingClient['username'],
-            "fullname": existingClient['fullname']
-        }
-        _gen_token(genTokenData, response)
-    
-    return {"status": True, "message": "Client logged in successfully"}
+    workspace_id = str(existing_workspace["_id"])
+    token = _gen_token(
+        {
+            "id": workspace_id,
+            "workspace_id": workspace_id,
+            "username": existing_workspace["username"],
+            "fullname": existing_workspace["fullname"],
+        },
+        response,
+    )
+    if not isinstance(token, str):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to start the authentication session.",
+        )
+    return {
+        "status": True,
+        "message": "Workspace logged in successfully",
+        "id": workspace_id,
+        "workspace_id": workspace_id,
+        "username": existing_workspace["username"],
+        "fullname": existing_workspace["fullname"],
+    }
 
 
 @client_router.post("/auth/logout", status_code=status.HTTP_200_OK)
@@ -217,101 +265,200 @@ def verify_token(token: str | None = Cookie(default=None, alias="access_token"))
 @client_router.get("/me")
 @client_router.get("/auth/me", include_in_schema=False)
 def get_current_user(user: dict[str, Any] = Depends(protect_route)):
-    user_id = user.get("id")
-    if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="The authentication token does not identify a valid client.",
-        )
-
-    client = get_database()["clients"].find_one(
-        {"_id": ObjectId(user_id)},
-        {"username": 1, "fullname": 1, "integrations": 1},
+    workspace_id = get_authenticated_workspace_id(user)
+    workspace = get_database()["workspaces"].find_one(
+        {"_id": ObjectId(workspace_id)},
+        {"username": 1, "fullname": 1},
     )
-    if not client:
+    if not workspace:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="The authenticated client was not found.",
+            detail="The authenticated workspace was not found.",
         )
 
-    username = client.get("username")
-    fullname = client.get("fullname")
+    username = workspace.get("username")
+    fullname = workspace.get("fullname")
     if not isinstance(username, str) or not username:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The stored client profile is incomplete.",
+            detail="The stored workspace profile is incomplete.",
         )
     if not isinstance(fullname, str) or not fullname:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The stored client profile is incomplete.",
+            detail="The stored workspace profile is incomplete.",
         )
 
     return {
-        "id": user_id,
+        "id": workspace_id,
+        "workspace_id": workspace_id,
         "username": username,
         "fullname": fullname,
-        "integrations": client.get("integrations") or {},
     }
 
 
 @client_router.patch("/me")
 def update_current_user(
-    client_update: ClientUpdateRequest,
+    workspace_update: WorkspaceUpdateRequest,
     response: Response,
     user: dict[str, Any] = Depends(protect_route),
 ):
-    user_id = user.get("id")
-    if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="The authentication token does not identify a valid client.",
-        )
-
-    updates = client_update.model_dump(exclude_unset=True)
-    if "integrations" in updates:
-        updates["integrations"] = client_update.integrations.model_dump()
+    workspace_id = get_authenticated_workspace_id(user)
+    updates = workspace_update.model_dump(exclude_unset=True)
     updates["updated_at"] = datetime.now(timezone.utc)
 
-    client_collection = get_database()["clients"]
-    result = client_collection.update_one(
-        {"_id": ObjectId(user_id)},
+    workspace_collection = get_database()["workspaces"]
+    result = workspace_collection.update_one(
+        {"_id": ObjectId(workspace_id)},
         {"$set": updates},
     )
     if result.matched_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="The authenticated client was not found.",
+            detail="The authenticated workspace was not found.",
         )
 
-    updated_client = client_collection.find_one(
-        {"_id": ObjectId(user_id)},
+    updated_workspace = workspace_collection.find_one(
+        {"_id": ObjectId(workspace_id)},
         {"password_hash": 0},
     )
-    if not updated_client:
+    if not updated_workspace:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="The authenticated client was not found.",
+            detail="The authenticated workspace was not found.",
         )
 
     if "fullname" in updates:
         token = _gen_token(
             {
-                "id": user_id,
-                "username": updated_client["username"],
-                "fullname": updated_client["fullname"],
+                "id": workspace_id,
+                "workspace_id": workspace_id,
+                "username": updated_workspace["username"],
+                "fullname": updated_workspace["fullname"],
             },
             response,
         )
         if not isinstance(token, str):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Client data was updated, but the authentication session could not be refreshed.",
+                detail="Workspace data was updated, but the authentication session could not be refreshed.",
             )
 
     return {
-        "id": user_id,
-        "username": updated_client["username"],
-        "fullname": updated_client["fullname"],
-        "integrations": updated_client.get("integrations", {}),
+        "id": workspace_id,
+        "workspace_id": workspace_id,
+        "username": updated_workspace["username"],
+        "fullname": updated_workspace["fullname"],
+    }
+
+
+@client_router.post("/clients", status_code=status.HTTP_201_CREATED)
+def create_client(
+    client_request: ClientCreateRequest,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    workspace_id = get_authenticated_workspace_id(user)
+    collection = get_database()["clients"]
+    collection.create_index("workspace_id")
+    client = Client(
+        workspace_id=workspace_id,
+        name=client_request.name,
+        integrations=client_request.integrations,
+    )
+    client_id = save_client(client)
+    return _client_response(
+        {
+            **client.model_dump(),
+            "_id": client_id,
+        }
+    )
+
+
+@client_router.get("/clients")
+def list_clients(user: dict[str, Any] = Depends(protect_route)):
+    workspace_id = get_authenticated_workspace_id(user)
+    clients = get_database()["clients"].find(
+        {"workspace_id": workspace_id}
+    ).sort("created_at", -1)
+    return {"clients": [_client_response(client) for client in clients]}
+
+
+@client_router.get("/clients/{client_id}")
+def get_client(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    workspace_id = get_authenticated_workspace_id(user)
+    return _client_response(get_workspace_client(workspace_id, client_id))
+
+
+@client_router.patch("/clients/{client_id}")
+def update_client(
+    client_id: str,
+    client_update: ClientUpdateRequest,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    workspace_id = get_authenticated_workspace_id(user)
+    get_workspace_client(workspace_id, client_id)
+    updates = client_update.model_dump(exclude_unset=True)
+    if "integrations" in updates:
+        if client_update.integrations is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="integrations cannot be null.",
+            )
+        updates["integrations"] = client_update.integrations.model_dump()
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    collection = get_database()["clients"]
+    collection.update_one(
+        {
+            "_id": ObjectId(client_id),
+            "workspace_id": workspace_id,
+        },
+        {"$set": updates},
+    )
+    updated_client = get_workspace_client(workspace_id, client_id)
+    return _client_response(updated_client)
+
+
+@client_router.delete("/clients/{client_id}")
+def delete_client(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    workspace_id = get_authenticated_workspace_id(user)
+    get_workspace_client(workspace_id, client_id)
+
+    database = get_database()
+    for collection_name in (
+        "ga4_reports",
+        "gsc_search_reports",
+        "gsc_sites",
+        "google_sheets_reports",
+        "gsc_data",
+    ):
+        database[collection_name].delete_many(
+            {
+                "workspace_id": workspace_id,
+                "client_id": client_id,
+            }
+        )
+
+    result = database["clients"].delete_one(
+        {
+            "_id": ObjectId(client_id),
+            "workspace_id": workspace_id,
+        }
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The client was not found in this workspace.",
+        )
+
+    return {
+        "status": True,
+        "message": "Client and its stored integration data deleted successfully.",
+        "client_id": client_id,
     }

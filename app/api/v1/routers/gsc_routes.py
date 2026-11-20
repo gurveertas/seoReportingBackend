@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.integrations.gsc.client import get_gsc_client
 from app.integrations.gsc.service import get_search_performance, get_gsc_sites
-from app.api.v1.routers.client_routes import get_user_integration_property
+from app.api.v1.routers.client_routes import (
+    get_authenticated_workspace_id,
+    get_client_integration_property,
+    get_workspace_client,
+)
 from app.database.connection import get_database
 from app.middlewares.protect_route import protect_route
 from app.models.gsc import GSCDocument
@@ -22,6 +26,7 @@ def save_gsc_data(data: GSCDocument):
     document = data.model_dump()
     return get_database().gsc_data.update_one(
         {
+            "workspace_id": document["workspace_id"],
             "client_id": document["client_id"],
             "property_url": document["property_url"],
             "period.type": document["period"]["type"],
@@ -47,12 +52,24 @@ def _credentials_path() -> str:
 
 
 @gsc_router.get('/health')
-async def get_gsc_health():
+async def get_gsc_health(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    get_workspace_client(
+        get_authenticated_workspace_id(user),
+        client_id,
+    )
     return {"status":True, "message":"GSC routes are healthy"}
 
 
 @gsc_router.get("/sites")
-def fetch_gsc_sites(user: dict[str, Any] = Depends(protect_route)):
+def fetch_gsc_sites(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    workspace_id = get_authenticated_workspace_id(user)
+    get_workspace_client(workspace_id, client_id)
     try:
         client = get_gsc_client(_credentials_path())
         sites = get_gsc_sites(client)
@@ -63,7 +80,11 @@ def fetch_gsc_sites(user: dict[str, Any] = Depends(protect_route)):
             detail="Unable to retrieve GSC sites.",
         ) from error
 
-    record = GSCSitesRecord(user_id=user["id"], sites=sites)
+    record = GSCSitesRecord(
+        workspace_id=workspace_id,
+        client_id=client_id,
+        sites=sites,
+    )
     try:
         insert_result = get_database()["gsc_sites"].insert_one(
             record.model_dump()
@@ -80,11 +101,14 @@ def fetch_gsc_sites(user: dict[str, Any] = Depends(protect_route)):
 
 @gsc_router.post("/search-performance")
 def fetch_gsc_search_performance(
+    client_id: str,
     request: GSCSearchRequest,
     user: dict[str, Any] = Depends(protect_route),
 ):
-    site_url = get_user_integration_property(
-        user.get("id"),
+    workspace_id = get_authenticated_workspace_id(user)
+    site_url = get_client_integration_property(
+        workspace_id,
+        client_id,
         "gsc",
         "property_url",
     )
@@ -105,7 +129,8 @@ def fetch_gsc_search_performance(
         ) from error
 
     record = GSCSearchReportRecord(
-        user_id=user["id"],
+        workspace_id=workspace_id,
+        client_id=client_id,
         site_url=site_url,
         start_date=request.start_date,
         end_date=request.end_date,

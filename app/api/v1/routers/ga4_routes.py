@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.integrations.ga4.client import get_ga4_client
 from app.integrations.ga4.service import get_ga4_report
-from app.api.v1.routers.client_routes import get_user_integration_property
+from app.api.v1.routers.client_routes import (
+    get_authenticated_workspace_id,
+    get_client_integration_property,
+    get_workspace_client,
+)
 from app.database.connection import get_database
 from app.middlewares.protect_route import protect_route
 from app.models.integration_data import GA4ReportRecord
@@ -29,17 +33,27 @@ def _credentials_path() -> str:
 
 
 @ga4_router.get("/health")
-def get_ga4_health():
+def get_ga4_health(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    get_workspace_client(
+        get_authenticated_workspace_id(user),
+        client_id,
+    )
     return {"status": True, "message": "GA4 routes are healthy"}
 
 
 @ga4_router.post("/report")
 def fetch_ga4_report(
+    client_id: str,
     request: GA4ReportRequest,
     user: dict[str, Any] = Depends(protect_route),
 ):
-    property_id = get_user_integration_property(
-        user.get("id"),
+    workspace_id = get_authenticated_workspace_id(user)
+    property_id = get_client_integration_property(
+        workspace_id,
+        client_id,
         "ga4",
         "property_id",
     )
@@ -76,7 +90,8 @@ def fetch_ga4_report(
         for row in response.rows
     ]
     record = GA4ReportRecord(
-        user_id=user["id"],
+        workspace_id=workspace_id,
+        client_id=client_id,
         property_id=property_id,
         start_date=request.start_date,
         end_date=request.end_date,

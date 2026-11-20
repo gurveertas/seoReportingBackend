@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.integrations.googleSheets.client import get_sheets_client
 from app.integrations.googleSheets.service import get_sheet_data
-from app.api.v1.routers.client_routes import get_user_integration_property
+from app.api.v1.routers.client_routes import (
+    get_authenticated_workspace_id,
+    get_client_integration_property,
+    get_workspace_client,
+)
 from app.database.connection import get_database
 from app.middlewares.protect_route import protect_route
 from app.models.integration_data import GoogleSheetsDataRecord
@@ -29,17 +33,27 @@ def _credentials_path() -> str:
 
 
 @google_sheets_router.get("/health")
-def get_google_sheets_health():
+def get_google_sheets_health(
+    client_id: str,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    get_workspace_client(
+        get_authenticated_workspace_id(user),
+        client_id,
+    )
     return {"status": True, "message": "Google Sheets routes are healthy"}
 
 
 @google_sheets_router.post("/values")
 def fetch_sheet_values(
+    client_id: str,
     request: SheetsDataRequest,
     user: dict[str, Any] = Depends(protect_route),
 ):
-    spreadsheet_id = get_user_integration_property(
-        user.get("id"),
+    workspace_id = get_authenticated_workspace_id(user)
+    spreadsheet_id = get_client_integration_property(
+        workspace_id,
+        client_id,
         "google_sheets",
         "property_id",
     )
@@ -58,7 +72,8 @@ def fetch_sheet_values(
         ) from error
 
     record = GoogleSheetsDataRecord(
-        user_id=user["id"],
+        workspace_id=workspace_id,
+        client_id=client_id,
         spreadsheet_id=spreadsheet_id,
         range_name=request.range_name,
         values=values,

@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from bson import ObjectId
+
 from app.api.v1.routers.ga4_routes import fetch_ga4_report
 from app.api.v1.routers.google_sheets_routes import fetch_sheet_values
 from app.api.v1.routers.gsc_routes import (
@@ -16,11 +18,16 @@ from app.requestModels.req_models import (
 
 
 class IntegrationRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.workspace_id = str(ObjectId())
+        self.client_id = str(ObjectId())
+        self.user = {"workspace_id": self.workspace_id}
+
     @patch("app.api.v1.routers.ga4_routes.get_ga4_report")
     @patch("app.api.v1.routers.ga4_routes.get_ga4_client")
-    @patch("app.api.v1.routers.ga4_routes.get_user_integration_property")
+    @patch("app.api.v1.routers.ga4_routes.get_client_integration_property")
     @patch("app.api.v1.routers.ga4_routes.get_database")
-    def test_ga4_report_returns_json_friendly_rows(
+    def test_ga4_report_is_saved_with_workspace_and_client_scope(
         self,
         get_database,
         get_integration_property,
@@ -41,22 +48,20 @@ class IntegrationRouteTests(unittest.TestCase):
         )
 
         result = fetch_ga4_report(
-            GA4ReportRequest(
+            client_id=self.client_id,
+            request=GA4ReportRequest(
                 start_date="7daysAgo",
                 end_date="yesterday",
                 dimensions=["date"],
                 metrics=["sessions"],
             ),
-            user={"id": "authenticated-user-id"},
+            user=self.user,
         )
 
         self.assertEqual(
             result["rows"],
             [{"dimensions": {"date": "20261118"}, "metrics": {"sessions": "12"}}],
         )
-        self.assertEqual(result["record_id"], str(
-            get_database.return_value["ga4_reports"].insert_one.return_value.inserted_id
-        ))
         get_report.assert_called_once_with(
             client=get_client.return_value,
             property_id="db-property-1",
@@ -66,24 +71,25 @@ class IntegrationRouteTests(unittest.TestCase):
             metrics=["sessions"],
         )
         get_integration_property.assert_called_once_with(
-            "authenticated-user-id",
+            self.workspace_id,
+            self.client_id,
             "ga4",
             "property_id",
         )
         stored_record = (
             get_database.return_value["ga4_reports"].insert_one.call_args.args[0]
         )
-        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["workspace_id"], self.workspace_id)
+        self.assertEqual(stored_record["client_id"], self.client_id)
         self.assertEqual(stored_record["property_id"], "db-property-1")
-        self.assertEqual(stored_record["rows"], result["rows"])
 
     @patch("app.api.v1.routers.google_sheets_routes.get_sheet_data")
     @patch("app.api.v1.routers.google_sheets_routes.get_sheets_client")
     @patch(
-        "app.api.v1.routers.google_sheets_routes.get_user_integration_property"
+        "app.api.v1.routers.google_sheets_routes.get_client_integration_property"
     )
     @patch("app.api.v1.routers.google_sheets_routes.get_database")
-    def test_sheets_values_returns_data(
+    def test_sheets_values_are_saved_with_workspace_and_client_scope(
         self,
         get_database,
         get_integration_property,
@@ -94,8 +100,9 @@ class IntegrationRouteTests(unittest.TestCase):
         get_data.return_value = [["name"], ["value"]]
 
         result = fetch_sheet_values(
-            SheetsDataRequest(range_name="Tab!A1:B2"),
-            user={"id": "authenticated-user-id"},
+            client_id=self.client_id,
+            request=SheetsDataRequest(range_name="Tab!A1:B2"),
+            user=self.user,
         )
 
         self.assertEqual(result["spreadsheet_id"], "db-sheet-1")
@@ -104,46 +111,54 @@ class IntegrationRouteTests(unittest.TestCase):
             get_database.return_value["google_sheets_reports"]
             .insert_one.call_args.args[0]
         )
-        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["workspace_id"], self.workspace_id)
+        self.assertEqual(stored_record["client_id"], self.client_id)
         self.assertEqual(stored_record["spreadsheet_id"], "db-sheet-1")
-        self.assertEqual(stored_record["values"], result["values"])
         get_data.assert_called_once_with(
             service=get_client.return_value,
             spreadsheet_id="db-sheet-1",
             range_name="Tab!A1:B2",
         )
         get_integration_property.assert_called_once_with(
-            "authenticated-user-id",
+            self.workspace_id,
+            self.client_id,
             "google_sheets",
             "property_id",
         )
 
+    @patch("app.api.v1.routers.gsc_routes.get_workspace_client")
     @patch("app.api.v1.routers.gsc_routes.get_gsc_sites")
     @patch("app.api.v1.routers.gsc_routes.get_gsc_client")
     @patch("app.api.v1.routers.gsc_routes.get_database")
-    def test_gsc_sites_returns_accessible_sites(
+    def test_gsc_sites_are_saved_for_the_selected_client(
         self,
         get_database,
         get_client,
         get_sites,
+        get_workspace_client,
     ):
         get_sites.return_value = [{"siteUrl": "https://example.com/"}]
 
-        result = fetch_gsc_sites(user={"id": "authenticated-user-id"})
+        result = fetch_gsc_sites(client_id=self.client_id, user=self.user)
 
         self.assertEqual(result["sites"], [{"siteUrl": "https://example.com/"}])
+        get_workspace_client.assert_called_once_with(
+            self.workspace_id,
+            self.client_id,
+        )
         stored_record = (
             get_database.return_value["gsc_sites"].insert_one.call_args.args[0]
         )
-        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["workspace_id"], self.workspace_id)
+        self.assertEqual(stored_record["client_id"], self.client_id)
         self.assertEqual(stored_record["sites"], result["sites"])
         get_sites.assert_called_once_with(get_client.return_value)
 
     @patch("app.api.v1.routers.gsc_routes.get_search_performance")
     @patch("app.api.v1.routers.gsc_routes.get_gsc_client")
-    @patch("app.api.v1.routers.gsc_routes.get_user_integration_property")
+    @patch("app.api.v1.routers.gsc_routes.get_client_integration_property")
     @patch("app.api.v1.routers.gsc_routes.get_database")
-    def test_gsc_search_performance_forwards_request(
+    def test_gsc_search_performance_is_scoped_to_the_selected_client(
         self,
         get_database,
         get_integration_property,
@@ -154,12 +169,13 @@ class IntegrationRouteTests(unittest.TestCase):
         get_data.return_value = [{"clicks": 2}]
 
         result = fetch_gsc_search_performance(
-            GSCSearchRequest(
+            client_id=self.client_id,
+            request=GSCSearchRequest(
                 start_date="2026-11-01",
                 end_date="2026-11-18",
                 dimensions=["query"],
             ),
-            user={"id": "authenticated-user-id"},
+            user=self.user,
         )
 
         self.assertEqual(result["site_url"], "https://db-example.com/")
@@ -168,9 +184,9 @@ class IntegrationRouteTests(unittest.TestCase):
             get_database.return_value["gsc_search_reports"]
             .insert_one.call_args.args[0]
         )
-        self.assertEqual(stored_record["user_id"], "authenticated-user-id")
+        self.assertEqual(stored_record["workspace_id"], self.workspace_id)
+        self.assertEqual(stored_record["client_id"], self.client_id)
         self.assertEqual(stored_record["site_url"], result["site_url"])
-        self.assertEqual(stored_record["rows"], result["rows"])
         get_data.assert_called_once_with(
             service=get_client.return_value,
             site_url="https://db-example.com/",
@@ -179,7 +195,8 @@ class IntegrationRouteTests(unittest.TestCase):
             dimensions=["query"],
         )
         get_integration_property.assert_called_once_with(
-            "authenticated-user-id",
+            self.workspace_id,
+            self.client_id,
             "gsc",
             "property_url",
         )

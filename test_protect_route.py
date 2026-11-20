@@ -10,11 +10,16 @@ from app.main import app
 
 
 class ProtectRouteTests(unittest.TestCase):
-    integration_health_routes = (
-        "/api/v1/gsc/health",
-        "/api/v1/ga4/health",
-        "/api/v1/google-sheets/health",
-    )
+    client_id = "000000000000000000000001"
+
+    @property
+    def integration_health_routes(self):
+        prefix = f"/api/v1/clients/{self.client_id}"
+        return (
+            f"{prefix}/gsc/health",
+            f"{prefix}/ga4/health",
+            f"{prefix}/google-sheets/health",
+        )
 
     def test_frontend_health_route_is_public(self):
         with TestClient(app) as client:
@@ -33,42 +38,44 @@ class ProtectRouteTests(unittest.TestCase):
             "http://localhost:5174",
         )
 
-    def test_all_integration_routes_require_authentication(self):
+    def test_workspace_and_client_routes_require_authentication(self):
+        client_path = f"/api/v1/clients/{self.client_id}"
         requests = (
-            ("GET", "/api/v1/gsc/health", None),
-            ("GET", "/api/v1/gsc/sites", None),
+            ("GET", f"{client_path}/gsc/health", None),
+            ("GET", f"{client_path}/gsc/sites", None),
             (
                 "POST",
-                "/api/v1/gsc/search-performance",
+                f"{client_path}/gsc/search-performance",
                 {
-                    "site_url": "https://example.com/",
                     "start_date": "2026-11-01",
                     "end_date": "2026-11-18",
                     "dimensions": ["query"],
                 },
             ),
-            ("GET", "/api/v1/ga4/health", None),
+            ("GET", f"{client_path}/ga4/health", None),
             (
                 "POST",
-                "/api/v1/ga4/report",
+                f"{client_path}/ga4/report",
                 {
-                    "property_id": "property-1",
                     "start_date": "7daysAgo",
                     "end_date": "yesterday",
                 },
             ),
-            ("GET", "/api/v1/google-sheets/health", None),
-            ("GET", "/api/v1/analytics/monthly", None),
-            ("GET", "/api/v1/analytics/weekly", None),
-            ("GET", "/api/v1/reports/monthly", None),
-            ("GET", "/api/v1/reports/weekly", None),
-            ("PATCH", "/api/v1/me", {"fullname": "Updated Name"}),
-            ("POST", "/api/v1/analytics/refresh", None),
+            ("GET", f"{client_path}/google-sheets/health", None),
             (
                 "POST",
-                "/api/v1/google-sheets/values",
-                {"spreadsheet_id": "sheet-1", "range_name": "Tab!A1:B2"},
+                f"{client_path}/google-sheets/values",
+                {"range_name": "Tab!A1:B2"},
             ),
+            ("GET", f"{client_path}/analytics/monthly", None),
+            ("GET", f"{client_path}/analytics/weekly", None),
+            ("GET", f"{client_path}/reports/monthly", None),
+            ("GET", f"{client_path}/reports/weekly", None),
+            ("POST", f"{client_path}/analytics/refresh", None),
+            ("GET", "/api/v1/clients", None),
+            ("GET", client_path, None),
+            ("PATCH", client_path, {"name": "Changed Client"}),
+            ("PATCH", "/api/v1/me", {"fullname": "Updated Name"}),
         )
 
         with TestClient(app) as client:
@@ -76,27 +83,49 @@ class ProtectRouteTests(unittest.TestCase):
                 response = client.request(method, path, json=body)
                 self.assertEqual(response.status_code, 401, path)
 
-    def test_each_integration_accepts_a_valid_bearer_token(self):
+    def test_client_integration_health_routes_accept_workspace_token(self):
         secret = "test-secret-that-is-at-least-32-bytes"
-        token = jwt.encode({"username": "test-user"}, secret, algorithm="HS256")
+        token = jwt.encode(
+            {"workspace_id": str(ObjectId())},
+            secret,
+            algorithm="HS256",
+        )
 
         with patch.dict(os.environ, {"JWT_SECRET": secret, "JWT_ALG": "HS256"}):
-            with TestClient(app) as client:
-                for path in self.integration_health_routes:
-                    response = client.get(
-                        path,
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    self.assertEqual(response.status_code, 200, path)
+            with patch(
+                "app.api.v1.routers.gsc_routes.get_workspace_client",
+                return_value={"name": "Example"},
+            ), patch(
+                "app.api.v1.routers.ga4_routes.get_workspace_client",
+                return_value={"name": "Example"},
+            ), patch(
+                "app.api.v1.routers.google_sheets_routes.get_workspace_client",
+                return_value={"name": "Example"},
+            ):
+                with TestClient(app) as client:
+                    for path in self.integration_health_routes:
+                        response = client.get(
+                            path,
+                            headers={"Authorization": f"Bearer {token}"},
+                        )
+                        self.assertEqual(response.status_code, 200, path)
 
     def test_integration_accepts_the_login_cookie(self):
         secret = "test-secret-that-is-at-least-32-bytes"
-        token = jwt.encode({"username": "test-user"}, secret, algorithm="HS256")
+        token = jwt.encode(
+            {"workspace_id": str(ObjectId())},
+            secret,
+            algorithm="HS256",
+        )
 
         with patch.dict(os.environ, {"JWT_SECRET": secret, "JWT_ALG": "HS256"}):
-            with TestClient(app) as client:
-                client.cookies.set("access_token", token)
-                response = client.get("/api/v1/gsc/health")
+            with patch(
+                "app.api.v1.routers.gsc_routes.get_workspace_client",
+                return_value={"name": "Example"},
+            ):
+                with TestClient(app) as client:
+                    client.cookies.set("access_token", token)
+                    response = client.get(self.integration_health_routes[0])
 
         self.assertEqual(response.status_code, 200)
 
@@ -118,22 +147,13 @@ class ProtectRouteTests(unittest.TestCase):
         self.assertIn("secure", cookie)
         self.assertIn("httponly", cookie)
 
-    def test_me_returns_user_data_from_the_auth_cookie(self):
+    def test_me_returns_workspace_data_from_database(self):
         secret = "test-secret-that-is-at-least-32-bytes"
-        user_id = str(ObjectId())
-        integrations = {
-            "gsc": {
-                "enabled": True,
-                "property_url": "https://example.com/",
-            },
-            "ga4": {
-                "enabled": True,
-                "property_id": "property-from-database",
-            },
-        }
+        workspace_id = str(ObjectId())
         token = jwt.encode(
             {
-                "id": user_id,
+                "id": workspace_id,
+                "workspace_id": workspace_id,
                 "username": "stale-username",
                 "fullname": "Stale Name",
             },
@@ -141,10 +161,9 @@ class ProtectRouteTests(unittest.TestCase):
             algorithm="HS256",
         )
         database = MagicMock()
-        database["clients"].find_one.return_value = {
-            "username": "test-user",
-            "fullname": "Test User",
-            "integrations": integrations,
+        database["workspaces"].find_one.return_value = {
+            "username": "workspace-owner",
+            "fullname": "Workspace Owner",
         }
 
         with patch.dict(
@@ -157,23 +176,21 @@ class ProtectRouteTests(unittest.TestCase):
             ):
                 with TestClient(app) as client:
                     client.cookies.set("access_token", token)
-                    for path in ("/api/v1/me", "/api/v1/auth/me"):
-                        with self.subTest(path=path):
-                            response = client.get(path)
-                            self.assertEqual(response.status_code, 200)
-                            self.assertEqual(
-                                response.json(),
-                                {
-                                    "id": user_id,
-                                    "username": "test-user",
-                                    "fullname": "Test User",
-                                    "integrations": integrations,
-                                },
-                            )
+                    response = client.get("/api/v1/auth/me")
 
-        database["clients"].find_one.assert_any_call(
-            {"_id": ObjectId(user_id)},
-            {"username": 1, "fullname": 1, "integrations": 1},
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": workspace_id,
+                "workspace_id": workspace_id,
+                "username": "workspace-owner",
+                "fullname": "Workspace Owner",
+            },
+        )
+        database["workspaces"].find_one.assert_called_once_with(
+            {"_id": ObjectId(workspace_id)},
+            {"username": 1, "fullname": 1},
         )
 
     def test_me_requires_authentication(self):
@@ -182,7 +199,7 @@ class ProtectRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
-    def test_invalid_bearer_token_is_rejected_for_all_integrations(self):
+    def test_invalid_bearer_token_is_rejected_for_client_integrations(self):
         secret = "test-secret-that-is-at-least-32-bytes"
 
         with patch.dict(os.environ, {"JWT_SECRET": secret, "JWT_ALG": "HS256"}):
@@ -196,7 +213,11 @@ class ProtectRouteTests(unittest.TestCase):
 
     def test_verify_token_reads_the_login_cookie(self):
         secret = "test-secret-that-is-at-least-32-bytes"
-        token = jwt.encode({"username": "test-user"}, secret, algorithm="HS256")
+        token = jwt.encode(
+            {"workspace_id": str(ObjectId())},
+            secret,
+            algorithm="HS256",
+        )
 
         with patch.dict(os.environ, {"JWT_SECRET": secret, "JWT_ALG": "HS256"}):
             with TestClient(app) as client:

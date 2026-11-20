@@ -1,6 +1,6 @@
-# Frontend Analytics Integration Guide
+# Frontend Workspace and Analytics Guide
 
-This guide describes how the frontend should load the analytics dashboard, switch between monthly and weekly views, authenticate requests, and refresh data.
+Each account is a workspace. A workspace can own multiple client records; each client stores its name and GSC, GA4, and Google Sheets configuration. Client and report routes are scoped by `client_id`, and the backend verifies that the authenticated workspace owns that client.
 
 ## API base URL
 
@@ -16,7 +16,7 @@ The examples below assume `API_BASE_URL` does not end with a slash.
 
 The backend authenticates using the HttpOnly `access_token` cookie. JavaScript cannot read this cookie; the browser must send it automatically.
 
-Use `credentials: "include"` for login, `/me`, analytics, and refresh requests:
+Use `credentials: "include"` for all authentication and client requests:
 
 ```js
 const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
@@ -30,69 +30,88 @@ const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
 With Axios, set `withCredentials: true`:
 
 ```js
-axios.get(`${API_BASE_URL}/api/v1/analytics/monthly`, {
+axios.get(`${API_BASE_URL}/api/v1/clients/${clientId}/analytics/monthly`, {
   withCredentials: true,
 });
 ```
 
-Useful authentication and connectivity endpoints:
+### Workspace signup
 
-| Method | Path | Authentication | Purpose |
-|---|---|---|---|
-| `GET` | `/api/v1/health` | None | Check that the API is reachable |
-| `POST` | `/api/v1/auth/logout` | None | Clear the login cookie |
-| `GET` | `/api/v1/me` | Required | Return the authenticated user's profile and saved integrations |
-| `PATCH` | `/api/v1/me` | Required | Update the authenticated user's full name and/or integration configuration |
-
-An unauthenticated or expired session returns `401`. Redirect to the login page or show the signed-out state.
-
-To log out, send `POST /api/v1/auth/logout` with `credentials: "include"`. It clears the HttpOnly cookie and can be called even if the session has expired.
-
-The `/api/v1/auth/me` path is also available as an alias. Both paths load `username`, `fullname`, and `integrations` from the database for the authenticated user, so the frontend can populate its profile and integration settings form with the saved values.
-
-### Updating client data
-
-Send a `PATCH` to `/api/v1/me` with `credentials: "include"`. The server identifies the client from the authentication cookie; do not send a user ID. `fullname` is optional. If `integrations` is included, it replaces the saved integration configuration.
+Create the workspace first. Integrations are configured on clients after signup.
 
 ```js
-await fetch(`${API_BASE_URL}/api/v1/me`, {
-  method: "PATCH",
+const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
+  method: "POST",
   credentials: "include",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    fullname: "Updated Name",
-    integrations: {
-      gsc: { enabled: true, property_url: "https://example.com/" },
-      ga4: { enabled: true, property_id: "123456789" },
-      google_sheets: { enabled: false, property_id: "spreadsheet-id" },
-    },
+    username: "workspace-owner",
+    password: "use-a-strong-password",
+    fullname: "Workspace Owner",
   }),
 });
 ```
 
-Send only `{ "fullname": "Updated Name" }` to change the name without replacing integrations. The response includes the updated profile and integrations, but never the password hash. Updating the full name also refreshes the authentication cookie.
+### Workspace and client endpoints
 
-## Dashboard endpoints
+| Method | Path | Authentication | Purpose |
+|---|---|---|---|
+| `GET` | `/api/v1/health` | None | Check that the API is reachable |
+| `POST` | `/api/v1/auth/register` | None | Create a workspace and sign it in |
+| `POST` | `/api/v1/auth/login` | None | Sign in to a workspace |
+| `POST` | `/api/v1/auth/logout` | None | Clear the login cookie |
+| `GET` | `/api/v1/me` | Required | Return the authenticated workspace profile |
+| `PATCH` | `/api/v1/me` | Required | Update workspace profile data |
+| `GET` | `/api/v1/clients` | Required | List clients owned by the workspace |
+| `POST` | `/api/v1/clients` | Required | Create a client |
+| `GET` | `/api/v1/clients/{client_id}` | Required | Load a client's settings |
+| `PATCH` | `/api/v1/clients/{client_id}` | Required | Update a client's name and/or integrations |
+| `DELETE` | `/api/v1/clients/{client_id}` | Required | Delete a client and its stored integration data |
+
+The workspace signup body contains `username`, `password`, and `fullname`. Integrations belong to clients, not the workspace. Create a client with:
+
+```json
+{
+  "name": "Acme",
+  "integrations": {
+    "gsc": { "enabled": true, "property_url": "https://example.com/" },
+    "ga4": { "enabled": true, "property_id": "123456789" },
+    "google_sheets": { "enabled": false, "property_id": "spreadsheet-id" }
+  }
+}
+```
+
+`POST /api/v1/clients` returns a `client_id`. Use it for that client's settings, integrations, analytics, refresh, and report requests. For `PATCH /api/v1/clients/{client_id}`, send the full `integrations` object if changing integration configuration; it replaces the saved values. Omit it to preserve the current configuration.
+
+`GET /api/v1/me` and its `/api/v1/auth/me` alias return workspace profile data. Use `GET /api/v1/clients` to load each client's name and integrations for the workspace UI. To log out, send `POST /api/v1/auth/logout` with `credentials: "include"`; it clears the HttpOnly cookie even if the session has expired. An unauthenticated or expired session returns `401`.
+
+Each client returned by `GET /api/v1/clients` includes `client_id`, `name`, `integrations`, `created_at`, and `updated_at`.
+
+## Client-scoped data endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/analytics/monthly` | Load the monthly view. This is the default view. |
-| `GET` | `/api/v1/analytics/weekly` | Load the weekly view. |
-| `POST` | `/api/v1/analytics/refresh?period=monthly` | Refresh integrations for the monthly view, store the results, then return fresh analytics from the database. |
-| `POST` | `/api/v1/analytics/refresh?period=weekly` | Same refresh flow for the weekly view. |
-| `GET` | `/api/v1/reports/monthly` | Download the monthly PDF report. |
-| `GET` | `/api/v1/reports/weekly` | Download the weekly PDF report. |
+| `GET` | `/api/v1/clients/{client_id}/analytics/monthly` | Load this client's monthly view. |
+| `GET` | `/api/v1/clients/{client_id}/analytics/weekly` | Load this client's weekly view. |
+| `POST` | `/api/v1/clients/{client_id}/analytics/refresh?period=monthly` | Refresh this client's integrations and return database-backed analytics. |
+| `POST` | `/api/v1/clients/{client_id}/analytics/refresh?period=weekly` | Same refresh flow for this client's weekly view. |
+| `GET` | `/api/v1/clients/{client_id}/gsc/sites` | List Search Console sites for this client. |
+| `POST` | `/api/v1/clients/{client_id}/gsc/search-performance` | Fetch and store this client's Search Console data. |
+| `POST` | `/api/v1/clients/{client_id}/ga4/report` | Fetch and store this client's GA4 data. |
+| `POST` | `/api/v1/clients/{client_id}/google-sheets/values` | Fetch and store this client's Google Sheets data. |
+| `GET` | `/api/v1/clients/{client_id}/reports/monthly` | Download this client's monthly PDF. |
+| `GET` | `/api/v1/clients/{client_id}/reports/weekly` | Download this client's weekly PDF. |
 
-The monthly view covers the latest completed calendar month and compares it with the previous month. The weekly view covers the latest completed Monday-to-Sunday week and compares it with the previous week.
+The monthly view covers the latest completed calendar month and compares it with the previous month. The weekly view covers the latest completed Monday-to-Sunday week and compares it with the previous week. Load the monthly view by default and use the selected client's `client_id` for every data request.
 
-The monthly and weekly `GET` routes read stored records from the database only; they do not call Google. The refresh `POST` route calls enabled integrations, stores their results, then rebuilds and returns the dashboard from the database. Its request has **no body**.
+The analytics `GET` routes read stored records for the selected client only; they do not call Google. The refresh `POST` route calls that client's enabled integrations, stores their results with both workspace and client IDs, then rebuilds the dashboard from those records. Its request has **no body**.
 
-The PDF routes are authenticated and read stored data only. Requesting `/api/v1/reports/monthly` or `/api/v1/reports/weekly` generates the PDF and returns it as `application/pdf`. The frontend should keep the returned `Blob`, show a “Report ready” dialog, then let the user click “Save PDF”.
+The PDF routes are authenticated and read stored data only. Requesting a client-scoped report route generates the PDF and returns it as `application/pdf`. The frontend should keep the returned `Blob`, show a “Report ready” dialog, then let the user click “Save PDF”.
 
 ```js
-async function generateReport(period) {
+async function generateReport(clientId, period) {
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/reports/${period}`,
+    `${API_BASE_URL}/api/v1/clients/${clientId}/reports/${period}`,
     { credentials: "include" }
   );
   if (!response.ok) {
@@ -130,14 +149,14 @@ async function saveGeneratedReport(report) {
 }
 ```
 
-Call `generateReport(period)` from the report button, then show the ready dialog with a Save button that calls `saveGeneratedReport(report)` directly from its click handler. Supported browsers then show the native file-location picker. Browsers without the File System Access API use their normal download behavior; to get a save-location prompt there, the user may need to enable “Ask where to save each file” in browser settings. A website cannot force that native prompt in every browser.
+Call `generateReport(clientId, period)` from the report button, then show the ready dialog with a Save button that calls `saveGeneratedReport(report)` directly from its click handler. Supported browsers then show the native file-location picker. Browsers without the File System Access API use their normal download behavior; to get a save-location prompt there, the user may need to enable “Ask where to save each file” in browser settings. A website cannot force that native prompt in every browser.
 
 Example:
 
 ```js
-async function loadAnalytics(period = "monthly") {
+async function loadAnalytics(clientId, period = "monthly") {
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/analytics/${period}`,
+    `${API_BASE_URL}/api/v1/clients/${clientId}/analytics/${period}`,
     { credentials: "include" }
   );
 
@@ -156,9 +175,9 @@ async function loadAnalytics(period = "monthly") {
 For the refresh button, use the currently selected period. The response already contains the refreshed dashboard; use it to update the page rather than making an immediate extra `GET`:
 
 ```js
-async function refreshAnalytics(period) {
+async function refreshAnalytics(clientId, period) {
   const response = await fetch(
-    `${API_BASE_URL}/api/v1/analytics/refresh?period=${period}`,
+    `${API_BASE_URL}/api/v1/clients/${clientId}/analytics/refresh?period=${period}`,
     {
       method: "POST",
       credentials: "include",
@@ -179,6 +198,10 @@ Both `GET` routes and the refresh `POST` return the dashboard fields below. The 
 
 ```json
 {
+  "client": {
+    "client_id": "66aabbccddeeff0011223344",
+    "name": "Acme"
+  },
   "period": {
     "mode": "monthly",
     "start_date": "2026-10-01",
@@ -347,9 +370,9 @@ Google Sheets uses the default range `A1:J100`. The first row is treated as the 
 
 ## Suggested dashboard behavior
 
-1. On page load, call the monthly `GET` route and select Monthly in the UI.
-2. On a Weekly/Monthly toggle, call that mode's `GET` route.
-3. On Refresh, disable the button or show a spinner, call the refresh `POST` with the selected period, then render the returned dashboard.
-4. Show `period.start_date`–`period.end_date` and the comparison dates in the UI.
-5. Show source status and `fetched_at` so users can distinguish old data from a recent refresh.
-6. Handle `401` by returning the user to login. Show a useful empty state for `no_data`.
+1. On page load, fetch `/api/v1/clients` and let the user select a client.
+2. Load that client's monthly `GET` route and select Monthly in the UI.
+3. On a Weekly/Monthly toggle, call that client's route for the selected mode.
+4. On Refresh, call the client-scoped refresh `POST` with the selected period, then render its returned dashboard.
+5. Show `period.start_date`–`period.end_date` and the comparison dates in the UI.
+6. Handle `401` by returning the workspace user to login. Show a useful empty state for `no_data`.

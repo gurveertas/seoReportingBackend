@@ -14,21 +14,29 @@ def get_api_health():
     return {"status": True, "message": "API is healthy"}
 
 
-api_router.include_router(gsc_router, prefix="/gsc", tags=["GSC"])
-api_router.include_router(ga4_router, prefix="/ga4", tags=["GA4"])
+api_router.include_router(
+    gsc_router,
+    prefix="/clients/{client_id}/gsc",
+    tags=["GSC"],
+)
+api_router.include_router(
+    ga4_router,
+    prefix="/clients/{client_id}/ga4",
+    tags=["GA4"],
+)
 api_router.include_router(
     google_sheets_router,
-    prefix="/google-sheets",
+    prefix="/clients/{client_id}/google-sheets",
     tags=["Google Sheets"],
 )
 api_router.include_router(
     analytics_router,
-    prefix="/analytics",
+    prefix="/clients/{client_id}/analytics",
     tags=["Analytics"],
 )
 api_router.include_router(
     reports_router,
-    prefix="/reports",
+    prefix="/clients/{client_id}/reports",
     tags=["Reports"],
 )
 api_router.include_router(client_router, tags=["Clients"])

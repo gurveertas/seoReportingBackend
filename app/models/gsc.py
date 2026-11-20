@@ -14,6 +14,7 @@ class GSCMetrics(BaseModel):
     position: float = 0.0
 
 class GSCDocument(BaseModel):
+    workspace_id: str
     client_id: str
     property_url: str
     period: Period

@@ -6,6 +6,7 @@ from app.integrations.gsc.service import (
 from app.models.gsc import GSCMetrics, GSCDocument, Period
 from app.api.v1.routers.gsc_routes import save_gsc_data
 from app.reports.gsc_report import generate_gsc_pdf
+import os
 
 CREDENTIALS_PATH = "app/integrations/gsc/credentials/service-account.json"
 
@@ -51,8 +52,13 @@ def main():
         metrics.append(row["ctr"])
         metrics.append(row["position"])
     # print(metrics)
+    workspace_id = os.getenv("WORKSPACE_ID")
+    client_id = os.getenv("CLIENT_ID")
+    if not workspace_id or not client_id:
+        raise RuntimeError("Set WORKSPACE_ID and CLIENT_ID before running this script.")
     gsc_data = GSCDocument(
-        client_id="client_001",
+        workspace_id=workspace_id,
+        client_id=client_id,
         property_url="https://nikhilsads.com/",
         metrics=GSCMetrics(clicks=metrics[0], impressions=metrics[1], ctr=metrics[2], position = metrics[3]),
         period=Period(type='weekly', start_date="18-11-2026", end_date="18-11-2026")

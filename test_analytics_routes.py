@@ -6,7 +6,7 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from app.api.v1.routers.analytics_routes import (
-    _authenticated_user_id,
+    _authenticated_workspace_id,
     _dashboard_from_database,
     _period_bounds,
     refresh_analytics,
@@ -40,18 +40,20 @@ class AnalyticsRouteTests(unittest.TestCase):
             ),
         )
 
-    def test_rejects_analytics_token_without_a_valid_client_id(self):
+    def test_rejects_analytics_token_without_a_valid_workspace_id(self):
         with self.assertRaises(HTTPException) as error:
-            _authenticated_user_id({"id": "invalid"})
+            _authenticated_workspace_id({"workspace_id": "invalid"})
 
         self.assertEqual(error.exception.status_code, 401)
 
+    @patch("app.api.v1.routers.analytics_routes.get_workspace_client")
     @patch("app.api.v1.routers.analytics_routes._period_bounds")
     @patch("app.api.v1.routers.analytics_routes.get_database")
     def test_dashboard_returns_no_data_status_from_database(
         self,
         get_database,
         period_bounds,
+        get_workspace_client,
     ):
         period_bounds.return_value = (
             date(2026, 10, 1),
@@ -62,9 +64,17 @@ class AnalyticsRouteTests(unittest.TestCase):
         database = MagicMock()
         database.__getitem__.return_value.find_one.return_value = None
         get_database.return_value = database
+        get_workspace_client.return_value = {
+            "name": "Example Client",
+        }
 
-        result = _dashboard_from_database("user-id", "monthly")
+        result = _dashboard_from_database(
+            "workspace-id",
+            "client-id",
+            "monthly",
+        )
 
+        self.assertEqual(result["client"]["name"], "Example Client")
         self.assertEqual(result["period"]["mode"], "monthly")
         self.assertEqual(result["sources"]["gsc"]["status"], "no_data")
         self.assertEqual(result["sources"]["ga4"]["status"], "no_data")
@@ -76,12 +86,14 @@ class AnalyticsRouteTests(unittest.TestCase):
         self.assertEqual(result["tables"]["top_queries"]["rows"], [])
         get_database.assert_called()
 
+    @patch("app.api.v1.routers.analytics_routes.get_workspace_client")
     @patch("app.api.v1.routers.analytics_routes._find_latest")
     @patch("app.api.v1.routers.analytics_routes._period_bounds")
     def test_dashboard_formats_stored_snapshots_for_kpis_charts_and_tables(
         self,
         period_bounds,
         find_latest,
+        get_workspace_client,
     ):
         current_start = date(2026, 10, 1)
         current_end = date(2026, 10, 31)
@@ -182,8 +194,20 @@ class AnalyticsRouteTests(unittest.TestCase):
             return snapshots.get(key)
 
         find_latest.side_effect = find_snapshot
-        result = _dashboard_from_database("user-id", "monthly")
+        get_workspace_client.return_value = {"name": "Example Client"}
+        result = _dashboard_from_database(
+            "workspace-id",
+            "client-id",
+            "monthly",
+        )
 
+        self.assertTrue(
+            all(
+                args[1].get("workspace_id") == "workspace-id"
+                and args[1].get("client_id") == "client-id"
+                for args, _ in find_latest.call_args_list
+            )
+        )
         self.assertEqual(result["kpis"][0]["change"], 100)
         self.assertEqual(result["kpis"][2]["value"], 10)
         self.assertEqual(result["kpis"][3]["trend"], "up")
@@ -226,10 +250,12 @@ class AnalyticsRouteTests(unittest.TestCase):
             lambda *args: events.append("database") or {"period": {}}
         )
 
-        user_id = str(ObjectId())
+        workspace_id = str(ObjectId())
+        client_id = str(ObjectId())
         result = refresh_analytics(
+            client_id=client_id,
             period="monthly",
-            user={"id": user_id},
+            user={"workspace_id": workspace_id},
         )
 
         self.assertEqual(events, ["ga4", "gsc", "google_sheets", "database"])
@@ -239,7 +265,11 @@ class AnalyticsRouteTests(unittest.TestCase):
             result["refresh"]["google_sheets"]["status"],
             "refreshed",
         )
-        dashboard_from_database.assert_called_once_with(user_id, "monthly")
+        dashboard_from_database.assert_called_once_with(
+            workspace_id,
+            client_id,
+            "monthly",
+        )
 
 
 if __name__ == "__main__":
