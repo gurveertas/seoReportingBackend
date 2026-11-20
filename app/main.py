@@ -16,7 +16,7 @@ from app.api.v1.router import api_router
 #     result = get_search_performance(service,  )
 
 app = FastAPI()
-origins = ['http://localhost:5174', 'http://localhost:5173']
+origins = ['http://localhost:5174', 'http://localhost:5173', 'https://forma-tas.vercel.app']
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_headers=['*'], allow_methods=['*'])
 app.include_router(api_router, prefix="/api/v1")
 
