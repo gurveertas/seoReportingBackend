@@ -1,13 +1,17 @@
 import io
 import math
 from html import escape
+from pathlib import Path
 from typing import Any
 
+import reportlab
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Flowable,
     PageBreak,
@@ -19,13 +23,44 @@ from reportlab.platypus import (
 )
 
 
-_NAVY = colors.HexColor("#18324B")
-_TEAL = colors.HexColor("#087E8B")
-_GREEN = colors.HexColor("#238636")
-_RED = colors.HexColor("#C0392B")
-_MUTED = colors.HexColor("#64748B")
-_GRID = colors.HexColor("#DCE4EA")
-_PALE = colors.HexColor("#F2F6F8")
+_NAVY = colors.HexColor("#102A43")
+_TEAL = colors.HexColor("#0F766E")
+_BLUE = colors.HexColor("#3563A9")
+_GREEN = colors.HexColor("#16835D")
+_RED = colors.HexColor("#B54745")
+_MUTED = colors.HexColor("#526477")
+_GRID = colors.HexColor("#D7E1E9")
+_PALE = colors.HexColor("#F3F7FA")
+_CARD = colors.white
+_BANNER_SUBTITLE = colors.HexColor("#D7E4EC")
+_GOLD = colors.HexColor("#D9AA4B")
+_FONT = "SEOReportVera"
+_FONT_BOLD = "SEOReportVera-Bold"
+_FONT_ITALIC = "SEOReportVera-Italic"
+_FONT_BOLD_ITALIC = "SEOReportVera-BoldItalic"
+
+
+def _register_fonts() -> None:
+    font_directory = Path(reportlab.__file__).parent / "fonts"
+    font_files = {
+        _FONT: "Vera.ttf",
+        _FONT_BOLD: "VeraBd.ttf",
+        _FONT_ITALIC: "VeraIt.ttf",
+        _FONT_BOLD_ITALIC: "VeraBI.ttf",
+    }
+    registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+    for font_name, filename in font_files.items():
+        if font_name not in registered_fonts:
+            pdfmetrics.registerFont(
+                TTFont(font_name, str(font_directory / filename))
+            )
+    pdfmetrics.registerFontFamily(
+        _FONT,
+        normal=_FONT,
+        bold=_FONT_BOLD,
+        italic=_FONT_ITALIC,
+        boldItalic=_FONT_BOLD_ITALIC,
+    )
 
 
 def _safe_text(value: Any) -> str:
@@ -83,15 +118,18 @@ class _LineChart(Flowable):
     def draw(self):
         canvas = self.canv
         canvas.saveState()
+        canvas.setFillColor(_CARD)
+        canvas.setStrokeColor(_GRID)
+        canvas.roundRect(0, 0, self.width, self.height, 6, stroke=1, fill=1)
         canvas.setStrokeColor(_GRID)
         canvas.setFillColor(_NAVY)
-        canvas.setFont("Helvetica-Bold", 9)
-        canvas.drawString(4, self.height - 13, _safe_text(self.title)[:52])
+        canvas.setFont(_FONT_BOLD, 8.5)
+        canvas.drawString(12, self.height - 17, _safe_text(self.title)[:52])
 
-        plot_left = 34
-        plot_right = max(plot_left + 1, self.width - 8)
-        plot_bottom = 29
-        plot_top = self.height - 25
+        plot_left = 40
+        plot_right = max(plot_left + 1, self.width - 12)
+        plot_bottom = 31
+        plot_top = self.height - 32
         plot_width = plot_right - plot_left
         plot_height = plot_top - plot_bottom
         numeric_values = [
@@ -102,7 +140,7 @@ class _LineChart(Flowable):
 
         if not numeric_values or not self.labels:
             canvas.setFillColor(_MUTED)
-            canvas.setFont("Helvetica", 8)
+            canvas.setFont(_FONT, 8)
             canvas.drawString(plot_left, self.height / 2, "No daily data available")
             canvas.restoreState()
             return
@@ -118,7 +156,7 @@ class _LineChart(Flowable):
             canvas.setStrokeColor(_GRID)
             canvas.line(plot_left, y, plot_right, y)
             canvas.setFillColor(_MUTED)
-            canvas.setFont("Helvetica", 6)
+            canvas.setFont(_FONT, 6)
             canvas.drawRightString(
                 plot_left - 4,
                 y - 2,
@@ -127,7 +165,7 @@ class _LineChart(Flowable):
 
         canvas.setStrokeColor(self.color)
         canvas.setFillColor(self.color)
-        canvas.setLineWidth(1.5)
+        canvas.setLineWidth(1.8)
         points = []
         denominator = max(len(self.values) - 1, 1)
         for index, value in enumerate(self.values):
@@ -150,12 +188,12 @@ class _LineChart(Flowable):
                     point[0],
                     point[1],
                 )
-            canvas.circle(point[0], point[1], 2, stroke=0, fill=1)
+            canvas.circle(point[0], point[1], 2.2, stroke=0, fill=1)
             previous_point = point
 
         label_stride = max(1, math.ceil(len(self.labels) / 6))
         canvas.setFillColor(_MUTED)
-        canvas.setFont("Helvetica", 6)
+        canvas.setFont(_FONT, 6)
         for index, label in enumerate(self.labels):
             if index % label_stride and index != len(self.labels) - 1:
                 continue
@@ -175,6 +213,7 @@ def _paragraph(value: Any, style: ParagraphStyle) -> Paragraph:
 def _make_kpi_card(kpi: dict[str, Any], styles, width: float) -> Table:
     trend = kpi.get("trend")
     change_color = _GREEN if trend == "up" else _RED if trend == "down" else _MUTED
+    card_accent = _BLUE if str(kpi.get("key", "")).startswith("ga4_") else _TEAL
     change_style = ParagraphStyle(
         "AnalyticsKpiChangeValue",
         parent=styles["kpi_change"],
@@ -191,12 +230,13 @@ def _make_kpi_card(kpi: dict[str, Any], styles, width: float) -> Table:
     card.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), _PALE),
+                ("BACKGROUND", (0, 0), (-1, -1), _CARD),
                 ("BOX", (0, 0), (-1, -1), 0.6, _GRID),
+                ("LINEABOVE", (0, 0), (-1, 0), 2, card_accent),
                 ("LEFTPADDING", (0, 0), (-1, -1), 8),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
             ]
         )
     )
@@ -250,7 +290,9 @@ def _data_table(
                 ("BACKGROUND", (0, 0), (-1, 0), _NAVY),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _PALE]),
-                ("GRID", (0, 0), (-1, -1), 0.35, _GRID),
+                ("BOX", (0, 0), (-1, -1), 0.5, _GRID),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, _GRID),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.2, _TEAL),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 5),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 5),
@@ -268,92 +310,106 @@ def generate_analytics_pdf(
     period: str,
     client_name: str,
 ) -> bytes:
+    _register_fonts()
     output = io.BytesIO()
     document = SimpleDocTemplate(
         output,
         pagesize=A4,
         rightMargin=16 * mm,
         leftMargin=16 * mm,
-        topMargin=17 * mm,
-        bottomMargin=17 * mm,
+        topMargin=19 * mm,
+        bottomMargin=18 * mm,
         title=f"{period.title()} Search and Traffic Report",
         author="SEO Reporting",
     )
     base_styles = getSampleStyleSheet()
     styles = {
-        "title": ParagraphStyle(
-            "AnalyticsTitle",
-            parent=base_styles["Title"],
-            fontName="Helvetica-Bold",
-            fontSize=21,
-            leading=25,
-            alignment=TA_LEFT,
-            textColor=_NAVY,
-            spaceAfter=5,
-        ),
-        "subtitle": ParagraphStyle(
-            "AnalyticsSubtitle",
+        "banner_eyebrow": ParagraphStyle(
+            "AnalyticsBannerEyebrow",
             parent=base_styles["Normal"],
-            fontSize=9,
-            leading=13,
-            textColor=_MUTED,
-            spaceAfter=5,
+            fontName=_FONT_BOLD,
+            fontSize=7.5,
+            leading=10,
+            textColor=_GOLD,
+            spaceAfter=2,
+        ),
+        "banner_title": ParagraphStyle(
+            "AnalyticsBannerTitle",
+            parent=base_styles["Title"],
+            fontName=_FONT_BOLD,
+            fontSize=22,
+            leading=27,
+            alignment=TA_LEFT,
+            textColor=colors.white,
+            spaceAfter=3,
+        ),
+        "banner_subtitle": ParagraphStyle(
+            "AnalyticsBannerSubtitle",
+            parent=base_styles["Normal"],
+            fontName=_FONT,
+            fontSize=8,
+            leading=12,
+            textColor=_BANNER_SUBTITLE,
         ),
         "section_heading": ParagraphStyle(
             "AnalyticsSection",
             parent=base_styles["Heading2"],
-            fontName="Helvetica-Bold",
-            fontSize=12,
-            leading=15,
-            textColor=_TEAL,
-            spaceBefore=8,
-            spaceAfter=6,
+            fontName=_FONT_BOLD,
+            fontSize=11,
+            leading=14,
+            textColor=_NAVY,
+            spaceBefore=10,
+            spaceAfter=7,
         ),
         "body": ParagraphStyle(
             "AnalyticsBody",
             parent=base_styles["BodyText"],
-            fontSize=8,
-            leading=11,
+            fontName=_FONT,
+            fontSize=8.5,
+            leading=12,
             textColor=_NAVY,
         ),
         "kpi_label": ParagraphStyle(
             "AnalyticsKpiLabel",
             parent=base_styles["Normal"],
+            fontName=_FONT_BOLD,
             fontSize=7,
-            leading=9,
+            leading=10,
             textColor=_MUTED,
             alignment=TA_CENTER,
         ),
         "kpi_value": ParagraphStyle(
             "AnalyticsKpiValue",
             parent=base_styles["Normal"],
-            fontName="Helvetica-Bold",
-            fontSize=15,
-            leading=18,
+            fontName=_FONT_BOLD,
+            fontSize=17,
+            leading=21,
             textColor=_NAVY,
             alignment=TA_CENTER,
         ),
         "kpi_change": ParagraphStyle(
             "AnalyticsKpiChange",
             parent=base_styles["Normal"],
+            fontName=_FONT,
             fontSize=7,
-            leading=9,
+            leading=10,
             textColor=_MUTED,
             alignment=TA_CENTER,
         ),
         "table_header": ParagraphStyle(
             "AnalyticsTableHeader",
             parent=base_styles["Normal"],
-            fontName="Helvetica-Bold",
+            fontName=_FONT_BOLD,
             fontSize=7,
-            leading=9,
+            leading=10,
             textColor=colors.white,
         ),
         "table_cell": ParagraphStyle(
             "AnalyticsTableCell",
             parent=base_styles["Normal"],
+            fontName=_FONT,
             fontSize=7,
-            leading=9,
+            leading=10,
             textColor=_NAVY,
             wordWrap="CJK",
         ),
@@ -372,24 +428,54 @@ def generate_analytics_pdf(
     site_url = gsc_source.get("site_url")
     subtitle_parts = [
         f"Prepared for {_safe_text(client_name)}",
-        f"Period: {date_range}",
+        f"Reporting period: {date_range}",
         f"Compared with: {comparison_range}",
     ]
     if site_url:
         subtitle_parts.append(f"Search Console property: {_safe_text(site_url)}")
 
+    banner = Table(
+        [
+            [_paragraph("SEO PERFORMANCE REPORT", styles["banner_eyebrow"])],
+            [
+                _paragraph(
+                    f"{period.title()} Search & Traffic Overview",
+                    styles["banner_title"],
+                )
+            ],
+            [
+                _paragraph(
+                    "  |  ".join(subtitle_parts),
+                    styles["banner_subtitle"],
+                )
+            ],
+        ],
+        colWidths=[document.width],
+    )
+    banner.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), _NAVY),
+                ("LINEABOVE", (0, 0), (-1, 0), 3, _TEAL),
+                ("LEFTPADDING", (0, 0), (-1, -1), 15),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 15),
+                ("TOPPADDING", (0, 0), (-1, 0), 12),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 2),
+                ("TOPPADDING", (0, 1), (-1, 1), 0),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 2),
+                ("TOPPADDING", (0, 2), (-1, 2), 0),
+                ("BOTTOMPADDING", (0, 2), (-1, 2), 13),
+            ]
+        )
+    )
     story: list[Flowable] = [
-        Paragraph(
-            f"{period.title()} Search &amp; Traffic Overview",
-            styles["title"],
-        ),
-        Paragraph(escape("  |  ".join(subtitle_parts)), styles["subtitle"]),
-        Spacer(1, 7),
+        banner,
+        Spacer(1, 10),
         Paragraph("Performance indicators", styles["section_heading"]),
     ]
 
     kpis = dashboard.get("kpis", [])
-    card_width = (document.width - 16) / 3
+    card_width = (document.width - 15) / 3
     cards = [_make_kpi_card(kpi, styles, card_width) for kpi in kpis]
     if cards:
         card_rows = [
@@ -406,7 +492,7 @@ def generate_analytics_pdf(
                 [
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
                     ("TOPPADDING", (0, 0), (-1, -1), 0),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                 ]
@@ -426,9 +512,9 @@ def generate_analytics_pdf(
     chart_flowables = []
     palette = [
         _TEAL,
-        colors.HexColor("#415A9B"),
-        colors.HexColor("#C47F17"),
-        colors.HexColor("#6C5B7B"),
+        _BLUE,
+        _GOLD,
+        colors.HexColor("#78649A"),
         _GREEN,
     ]
     for chart_key, chart in dashboard.get("charts", {}).items():
@@ -436,7 +522,7 @@ def generate_analytics_pdf(
         for dataset_index, dataset in enumerate(chart.get("datasets", [])):
             chart_flowables.append(
                 _LineChart(
-                    f"{chart_key.replace('_', ' ').title()} — "
+                    f"{chart_key.replace('_', ' ').title()} | "
                     f"{dataset.get('label', 'Metric')}",
                     labels,
                     dataset.get("data", []),
@@ -519,10 +605,30 @@ def generate_analytics_pdf(
 
     def draw_page(canvas, doc):
         canvas.saveState()
+        canvas.setFillColor(_NAVY)
+        canvas.setFont(_FONT_BOLD, 7.5)
+        canvas.drawString(
+            doc.leftMargin,
+            A4[1] - 10 * mm,
+            "SEO REPORTING",
+        )
+        canvas.setFillColor(_TEAL)
+        canvas.setFont(_FONT_BOLD, 7)
+        canvas.drawRightString(
+            A4[0] - doc.rightMargin,
+            A4[1] - 10 * mm,
+            f"{period.upper()} REPORT",
+        )
         canvas.setStrokeColor(_GRID)
+        canvas.line(
+            doc.leftMargin,
+            A4[1] - 13 * mm,
+            A4[0] - doc.rightMargin,
+            A4[1] - 13 * mm,
+        )
         canvas.line(doc.leftMargin, 11 * mm, A4[0] - doc.rightMargin, 11 * mm)
         canvas.setFillColor(_MUTED)
-        canvas.setFont("Helvetica", 7)
+        canvas.setFont(_FONT, 7)
         canvas.drawString(doc.leftMargin, 7 * mm, "Generated from stored integration data")
         canvas.drawRightString(A4[0] - doc.rightMargin, 7 * mm, f"Page {doc.page}")
         canvas.restoreState()
