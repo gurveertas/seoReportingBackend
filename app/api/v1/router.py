@@ -4,6 +4,7 @@ from app.api.v1.routers.client_routes import client_router
 from app.api.v1.routers.ga4_routes import ga4_router
 from app.api.v1.routers.google_sheets_routes import google_sheets_router
 from app.api.v1.routers.gsc_routes import gsc_router
+from app.api.v1.routers.reports_routes import reports_router
 
 api_router = APIRouter()
 
@@ -24,5 +25,10 @@ api_router.include_router(
     analytics_router,
     prefix="/analytics",
     tags=["Analytics"],
+)
+api_router.include_router(
+    reports_router,
+    prefix="/reports",
+    tags=["Reports"],
 )
 api_router.include_router(client_router, tags=["Clients"])

@@ -475,6 +475,15 @@ def _dashboard_from_database(user_id: str, period: Literal["monthly", "weekly"])
                 "fetched_at": (
                     (gsc_summary or gsc_daily or {}).get("fetched_at")
                 ),
+                "site_url": (
+                    (
+                        gsc_summary
+                        or gsc_daily
+                        or gsc_queries
+                        or gsc_pages
+                        or {}
+                    ).get("site_url")
+                ),
             },
             "ga4": {
                 "status": "available" if ga4_summary or ga4_daily else "no_data",

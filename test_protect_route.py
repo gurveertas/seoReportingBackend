@@ -59,6 +59,8 @@ class ProtectRouteTests(unittest.TestCase):
             ("GET", "/api/v1/google-sheets/health", None),
             ("GET", "/api/v1/analytics/monthly", None),
             ("GET", "/api/v1/analytics/weekly", None),
+            ("GET", "/api/v1/reports/monthly", None),
+            ("GET", "/api/v1/reports/weekly", None),
             ("POST", "/api/v1/analytics/refresh", None),
             (
                 "POST",

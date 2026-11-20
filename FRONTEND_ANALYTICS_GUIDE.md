@@ -52,10 +52,57 @@ An unauthenticated or expired session returns `401`. Redirect to the login page 
 | `GET` | `/api/v1/analytics/weekly` | Load the weekly view. |
 | `POST` | `/api/v1/analytics/refresh?period=monthly` | Refresh integrations for the monthly view, store the results, then return fresh analytics from the database. |
 | `POST` | `/api/v1/analytics/refresh?period=weekly` | Same refresh flow for the weekly view. |
+| `GET` | `/api/v1/reports/monthly` | Download the monthly PDF report. |
+| `GET` | `/api/v1/reports/weekly` | Download the weekly PDF report. |
 
 The monthly view covers the latest completed calendar month and compares it with the previous month. The weekly view covers the latest completed Monday-to-Sunday week and compares it with the previous week.
 
 The monthly and weekly `GET` routes read stored records from the database only; they do not call Google. The refresh `POST` route calls enabled integrations, stores their results, then rebuilds and returns the dashboard from the database. Its request has **no body**.
+
+The PDF routes are authenticated and read stored data only. Requesting `/api/v1/reports/monthly` or `/api/v1/reports/weekly` generates the PDF and returns it as `application/pdf`. The frontend should keep the returned `Blob`, show a “Report ready” dialog, then let the user click “Save PDF”.
+
+```js
+async function generateReport(period) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/reports/${period}`,
+    { credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error("Unable to generate the report.");
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: `seo-report-${period}.pdf`,
+  };
+}
+
+async function saveGeneratedReport(report) {
+  if ("showSaveFilePicker" in window) {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: report.filename,
+      types: [{
+        description: "PDF document",
+        accept: { "application/pdf": [".pdf"] },
+      }],
+    });
+    const writable = await handle.createWritable();
+    await writable.write(report.blob);
+    await writable.close();
+    return;
+  }
+
+  // Fallback: the browser downloads using its configured download behavior.
+  const url = URL.createObjectURL(report.blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = report.filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+```
+
+Call `generateReport(period)` from the report button, then show the ready dialog with a Save button that calls `saveGeneratedReport(report)` directly from its click handler. Supported browsers then show the native file-location picker. Browsers without the File System Access API use their normal download behavior; to get a save-location prompt there, the user may need to enable “Ask where to save each file” in browser settings. A website cannot force that native prompt in every browser.
 
 Example:
 
@@ -114,7 +161,8 @@ Both `GET` routes and the refresh `POST` return the dashboard fields below. The 
   "sources": {
     "gsc": {
       "status": "available",
-      "fetched_at": "2026-11-19T12:00:00Z"
+      "fetched_at": "2026-11-19T12:00:00Z",
+      "site_url": "https://example.com/"
     },
     "ga4": {
       "status": "available",
