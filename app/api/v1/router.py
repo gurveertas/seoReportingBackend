@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.api.v1.routers.analytics_routes import analytics_router
 from app.api.v1.routers.client_routes import client_router
 from app.api.v1.routers.ga4_routes import ga4_router
 from app.api.v1.routers.google_sheets_routes import google_sheets_router
@@ -18,5 +19,10 @@ api_router.include_router(
     google_sheets_router,
     prefix="/google-sheets",
     tags=["Google Sheets"],
+)
+api_router.include_router(
+    analytics_router,
+    prefix="/analytics",
+    tags=["Analytics"],
 )
 api_router.include_router(client_router, tags=["Clients"])
