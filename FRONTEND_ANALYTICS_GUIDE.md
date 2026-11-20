@@ -40,10 +40,13 @@ Useful authentication and connectivity endpoints:
 | Method | Path | Authentication | Purpose |
 |---|---|---|---|
 | `GET` | `/api/v1/health` | None | Check that the API is reachable |
+| `POST` | `/api/v1/auth/logout` | None | Clear the login cookie |
 | `GET` | `/api/v1/me` | Required | Return the authenticated user's profile and saved integrations |
 | `PATCH` | `/api/v1/me` | Required | Update the authenticated user's full name and/or integration configuration |
 
 An unauthenticated or expired session returns `401`. Redirect to the login page or show the signed-out state.
+
+To log out, send `POST /api/v1/auth/logout` with `credentials: "include"`. It clears the HttpOnly cookie and can be called even if the session has expired.
 
 The `/api/v1/auth/me` path is also available as an alias. Both paths load `username`, `fullname`, and `integrations` from the database for the authenticated user, so the frontend can populate its profile and integration settings form with the saved values.
 

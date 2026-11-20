@@ -179,6 +179,19 @@ def login_client(client: LoginRequest, response: Response):
     
     return {"status": True, "message": "Client logged in successfully"}
 
+
+@client_router.post("/auth/logout", status_code=status.HTTP_200_OK)
+def logout_client(response: Response):
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        httponly=True,
+        secure=True,
+        samesite="none",
+    )
+    return {"status": True, "message": "Client logged out successfully"}
+
+
 @client_router.get('/auth/verify-token', status_code=status.HTTP_200_OK)
 def verify_token(token: str | None = Cookie(default=None, alias="access_token")):
     try:

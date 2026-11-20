@@ -100,6 +100,24 @@ class ProtectRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_logout_clears_auth_cookie_without_requiring_authentication(self):
+        with TestClient(app) as client:
+            client.cookies.set("access_token", "expired-token")
+            response = client.post("/api/v1/auth/logout")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"status": True, "message": "Client logged out successfully"},
+        )
+        cookie = response.headers["set-cookie"].lower()
+        self.assertIn("access_token=", cookie)
+        self.assertIn("max-age=0", cookie)
+        self.assertIn("path=/", cookie)
+        self.assertIn("samesite=none", cookie)
+        self.assertIn("secure", cookie)
+        self.assertIn("httponly", cookie)
+
     def test_me_returns_user_data_from_the_auth_cookie(self):
         secret = "test-secret-that-is-at-least-32-bytes"
         user_id = str(ObjectId())
