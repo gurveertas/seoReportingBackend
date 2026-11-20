@@ -4,9 +4,14 @@ from unittest.mock import MagicMock, Mock, patch
 
 from fastapi import HTTPException, Response
 from pymongo.errors import DuplicateKeyError
+from bson import ObjectId
 
-from app.api.v1.routers.client_routes import _gen_token, register_client
-from app.requestModels.req_models import RegisterRequest
+from app.api.v1.routers.client_routes import (
+    _gen_token,
+    register_client,
+    update_current_user,
+)
+from app.requestModels.req_models import ClientUpdateRequest, RegisterRequest
 
 
 class RegisterClientTests(unittest.TestCase):
@@ -91,6 +96,74 @@ class RegisterClientTests(unittest.TestCase):
         self.assertIn("samesite=none", cookie)
         self.assertIn("secure", cookie)
         self.assertIn("httponly", cookie)
+
+    @patch("app.api.v1.routers.client_routes._gen_token")
+    @patch("app.api.v1.routers.client_routes.get_database")
+    def test_updates_only_the_authenticated_client_and_refreshes_name_token(
+        self,
+        get_database,
+        gen_token,
+    ):
+        user_id = str(ObjectId())
+        self.users.update_one.return_value.matched_count = 1
+        self.users.find_one.return_value = {
+            "username": "nikhilTas",
+            "fullname": "New Name",
+            "integrations": {
+                "gsc": {
+                    "enabled": True,
+                    "property_url": "https://new-example.com/",
+                },
+                "ga4": None,
+                "google_sheets": None,
+            },
+        }
+        get_database.return_value = self.database
+        gen_token.return_value = "refreshed-token"
+        request = ClientUpdateRequest(
+            fullname="  New Name  ",
+            integrations={
+                "gsc": {
+                    "enabled": True,
+                    "property_url": "https://new-example.com/",
+                }
+            },
+        )
+        response = Response()
+
+        result = update_current_user(
+            request,
+            response,
+            {"id": user_id, "username": "old-name"},
+        )
+
+        self.users.update_one.assert_called_once()
+        query = self.users.update_one.call_args.args[0]
+        update = self.users.update_one.call_args.args[1]
+        self.assertEqual(query, {"_id": ObjectId(user_id)})
+        self.assertEqual(update["$set"]["fullname"], "New Name")
+        self.assertEqual(
+            update["$set"]["integrations"],
+            request.integrations.model_dump(),
+        )
+        self.assertEqual(result["fullname"], "New Name")
+        self.assertNotIn("password_hash", result)
+        gen_token.assert_called_once_with(
+            {
+                "id": user_id,
+                "username": "nikhilTas",
+                "fullname": "New Name",
+            },
+            response,
+        )
+
+    def test_client_update_requires_at_least_one_field(self):
+        with self.assertRaises(ValueError):
+            ClientUpdateRequest()
+
+    def test_client_update_rejects_unrecognized_fields(self):
+        with self.assertRaises(ValueError):
+            ClientUpdateRequest(id="another-client", fullname="New Name")
 
 
 if __name__ == "__main__":

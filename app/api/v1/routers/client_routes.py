@@ -9,7 +9,11 @@ from fastapi import HTTPException, status
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
-from app.requestModels.req_models import RegisterRequest, LoginRequest
+from app.requestModels.req_models import (
+    ClientUpdateRequest,
+    RegisterRequest,
+    LoginRequest,
+)
 from app.database.connection import get_database
 from app.models.client import Client
 from app.middlewares.protect_route import protect_route
@@ -200,18 +204,101 @@ def verify_token(token: str | None = Cookie(default=None, alias="access_token"))
 @client_router.get("/me")
 @client_router.get("/auth/me", include_in_schema=False)
 def get_current_user(user: dict[str, Any] = Depends(protect_route)):
-    user_data = {
-        "id": user.get("id"),
-        "username": user.get("username"),
-        "fullname": user.get("fullname"),
-    }
-    if not all(
-        isinstance(value, str) and value
-        for value in user_data.values()
-    ):
+    user_id = user.get("id")
+    if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="The authentication token does not contain valid user data.",
+            detail="The authentication token does not identify a valid client.",
         )
 
-    return user_data
+    client = get_database()["clients"].find_one(
+        {"_id": ObjectId(user_id)},
+        {"username": 1, "fullname": 1, "integrations": 1},
+    )
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The authenticated client was not found.",
+        )
+
+    username = client.get("username")
+    fullname = client.get("fullname")
+    if not isinstance(username, str) or not username:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The stored client profile is incomplete.",
+        )
+    if not isinstance(fullname, str) or not fullname:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The stored client profile is incomplete.",
+        )
+
+    return {
+        "id": user_id,
+        "username": username,
+        "fullname": fullname,
+        "integrations": client.get("integrations") or {},
+    }
+
+
+@client_router.patch("/me")
+def update_current_user(
+    client_update: ClientUpdateRequest,
+    response: Response,
+    user: dict[str, Any] = Depends(protect_route),
+):
+    user_id = user.get("id")
+    if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The authentication token does not identify a valid client.",
+        )
+
+    updates = client_update.model_dump(exclude_unset=True)
+    if "integrations" in updates:
+        updates["integrations"] = client_update.integrations.model_dump()
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    client_collection = get_database()["clients"]
+    result = client_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": updates},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The authenticated client was not found.",
+        )
+
+    updated_client = client_collection.find_one(
+        {"_id": ObjectId(user_id)},
+        {"password_hash": 0},
+    )
+    if not updated_client:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The authenticated client was not found.",
+        )
+
+    if "fullname" in updates:
+        token = _gen_token(
+            {
+                "id": user_id,
+                "username": updated_client["username"],
+                "fullname": updated_client["fullname"],
+            },
+            response,
+        )
+        if not isinstance(token, str):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Client data was updated, but the authentication session could not be refreshed.",
+            )
+
+    return {
+        "id": user_id,
+        "username": updated_client["username"],
+        "fullname": updated_client["fullname"],
+        "integrations": updated_client.get("integrations", {}),
+    }

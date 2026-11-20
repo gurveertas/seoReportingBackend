@@ -1,8 +1,9 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import jwt
+from bson import ObjectId
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -61,6 +62,7 @@ class ProtectRouteTests(unittest.TestCase):
             ("GET", "/api/v1/analytics/weekly", None),
             ("GET", "/api/v1/reports/monthly", None),
             ("GET", "/api/v1/reports/weekly", None),
+            ("PATCH", "/api/v1/me", {"fullname": "Updated Name"}),
             ("POST", "/api/v1/analytics/refresh", None),
             (
                 "POST",
@@ -100,29 +102,60 @@ class ProtectRouteTests(unittest.TestCase):
 
     def test_me_returns_user_data_from_the_auth_cookie(self):
         secret = "test-secret-that-is-at-least-32-bytes"
+        user_id = str(ObjectId())
+        integrations = {
+            "gsc": {
+                "enabled": True,
+                "property_url": "https://example.com/",
+            },
+            "ga4": {
+                "enabled": True,
+                "property_id": "property-from-database",
+            },
+        }
         token = jwt.encode(
             {
-                "id": "user-id",
-                "username": "test-user",
-                "fullname": "Test User",
+                "id": user_id,
+                "username": "stale-username",
+                "fullname": "Stale Name",
             },
             secret,
             algorithm="HS256",
         )
+        database = MagicMock()
+        database["clients"].find_one.return_value = {
+            "username": "test-user",
+            "fullname": "Test User",
+            "integrations": integrations,
+        }
 
-        with patch.dict(os.environ, {"JWT_SECRET": secret, "JWT_ALG": "HS256"}):
-            with TestClient(app) as client:
-                client.cookies.set("access_token", token)
-                response = client.get("/api/v1/me")
+        with patch.dict(
+            os.environ,
+            {"JWT_SECRET": secret, "JWT_ALG": "HS256"},
+        ):
+            with patch(
+                "app.api.v1.routers.client_routes.get_database",
+                return_value=database,
+            ):
+                with TestClient(app) as client:
+                    client.cookies.set("access_token", token)
+                    for path in ("/api/v1/me", "/api/v1/auth/me"):
+                        with self.subTest(path=path):
+                            response = client.get(path)
+                            self.assertEqual(response.status_code, 200)
+                            self.assertEqual(
+                                response.json(),
+                                {
+                                    "id": user_id,
+                                    "username": "test-user",
+                                    "fullname": "Test User",
+                                    "integrations": integrations,
+                                },
+                            )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": "user-id",
-                "username": "test-user",
-                "fullname": "Test User",
-            },
+        database["clients"].find_one.assert_any_call(
+            {"_id": ObjectId(user_id)},
+            {"username": 1, "fullname": 1, "integrations": 1},
         )
 
     def test_me_requires_authentication(self):

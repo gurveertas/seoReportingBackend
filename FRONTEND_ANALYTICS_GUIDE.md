@@ -40,9 +40,34 @@ Useful authentication and connectivity endpoints:
 | Method | Path | Authentication | Purpose |
 |---|---|---|---|
 | `GET` | `/api/v1/health` | None | Check that the API is reachable |
-| `GET` | `/api/v1/me` | Required | Return the authenticated user's `id`, `username`, and `fullname` |
+| `GET` | `/api/v1/me` | Required | Return the authenticated user's profile and saved integrations |
+| `PATCH` | `/api/v1/me` | Required | Update the authenticated user's full name and/or integration configuration |
 
 An unauthenticated or expired session returns `401`. Redirect to the login page or show the signed-out state.
+
+The `/api/v1/auth/me` path is also available as an alias. Both paths load `username`, `fullname`, and `integrations` from the database for the authenticated user, so the frontend can populate its profile and integration settings form with the saved values.
+
+### Updating client data
+
+Send a `PATCH` to `/api/v1/me` with `credentials: "include"`. The server identifies the client from the authentication cookie; do not send a user ID. `fullname` is optional. If `integrations` is included, it replaces the saved integration configuration.
+
+```js
+await fetch(`${API_BASE_URL}/api/v1/me`, {
+  method: "PATCH",
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    fullname: "Updated Name",
+    integrations: {
+      gsc: { enabled: true, property_url: "https://example.com/" },
+      ga4: { enabled: true, property_id: "123456789" },
+      google_sheets: { enabled: false, property_id: "spreadsheet-id" },
+    },
+  }),
+});
+```
+
+Send only `{ "fullname": "Updated Name" }` to change the name without replacing integrations. The response includes the updated profile and integrations, but never the password hash. Updating the full name also refreshes the authentication cookie.
 
 ## Dashboard endpoints
 
