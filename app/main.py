@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database.connection import get_database, check_connection
@@ -16,7 +18,8 @@ from app.api.v1.router import api_router
 #     result = get_search_performance(service,  )
 
 app = FastAPI()
-origins = ['http://localhost:5174', 'http://localhost:5173', 'https://forma-tas.vercel.app']
+_default_origins = 'http://localhost:5174,http://localhost:5173,https://forma-tas.vercel.app'
+origins = [o.strip() for o in os.getenv('CORS_ORIGINS', _default_origins).split(',') if o.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_headers=['*'], allow_methods=['*'])
 app.include_router(api_router, prefix="/api/v1")
 

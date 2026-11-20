@@ -319,8 +319,12 @@ def generate_analytics_pdf(
         leftMargin=16 * mm,
         topMargin=19 * mm,
         bottomMargin=18 * mm,
-        title=f"{period.title()} Search and Traffic Report",
-        author="SEO Reporting",
+        # Spec: Title only. No provider name in Author/Creator/Producer.
+        title=f"{_safe_text(client_name)} {period.title()} SEO Report",
+        author="",
+        creator="",
+        producer="",
+        subject="",
     )
     base_styles = getSampleStyleSheet()
     styles = {

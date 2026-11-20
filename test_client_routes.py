@@ -244,10 +244,12 @@ class ClientManagementRouteTests(unittest.TestCase):
         get_database.return_value = database
         get_workspace_client.return_value = {"_id": ObjectId(client_id)}
 
-        result = delete_client(
-            client_id,
-            {"workspace_id": self.workspace_id},
-        )
+        with patch("app.reports.storage.delete_client_reports") as delete_reports:
+            result = delete_client(
+                client_id,
+                {"workspace_id": self.workspace_id},
+            )
+        delete_reports.assert_called_once_with(self.workspace_id, client_id)
 
         get_workspace_client.assert_called_once_with(
             self.workspace_id,

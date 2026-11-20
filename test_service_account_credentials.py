@@ -100,6 +100,7 @@ class ServiceAccountCredentialTests(unittest.TestCase):
             "searchconsole",
             "v1",
             credentials="credentials",
+            cache_discovery=False,
         )
 
     @patch("app.integrations.ga4.client.BetaAnalyticsDataClient")
@@ -134,6 +135,7 @@ class ServiceAccountCredentialTests(unittest.TestCase):
             "sheets",
             "v4",
             credentials="credentials",
+            cache_discovery=False,
         )
 
 

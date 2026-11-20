@@ -44,6 +44,7 @@ class ClientCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     integrations: Integrations = Field(default_factory=Integrations)
+    auto_monthly: bool = False
 
     @field_validator("name")
     @classmethod
@@ -59,11 +60,14 @@ class ClientUpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     integrations: Integrations | None = None
+    auto_monthly: bool | None = None
 
     @model_validator(mode="after")
     def validate_update_fields(self):
         if not self.model_fields_set:
             raise ValueError("At least one client field must be provided.")
+        if "auto_monthly" in self.model_fields_set and self.auto_monthly is None:
+            raise ValueError("auto_monthly cannot be null.")
         if "name" in self.model_fields_set:
             if self.name is None or not self.name.strip():
                 raise ValueError("name cannot be empty.")
@@ -90,3 +94,25 @@ class GSCSearchRequest(BaseModel):
     start_date: str
     end_date: str
     dimensions: Optional[List[str]] = None
+
+
+class SiteImportItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    site_id: str
+    name: str | None = Field(default=None, max_length=120)
+    ga4_property_id: str | None = Field(default=None, max_length=40)
+
+
+class SiteImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sites: List[SiteImportItem] = Field(min_length=1, max_length=200)
+    auto_monthly: bool = True
+
+
+class ReportGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    month: str | None = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    refresh: bool = True

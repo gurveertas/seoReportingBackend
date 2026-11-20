@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from google.auth.exceptions import RefreshError
 
 from app.api.v1.routers.client_routes import (
     get_authenticated_workspace_id,
@@ -15,11 +16,9 @@ from app.api.v1.routers.google_sheets_routes import (
     _credentials_path as sheets_credentials_path,
 )
 from app.database.connection import get_database
-from app.integrations.ga4.client import get_ga4_client
+from app.integrations.credentials import build_source_client
 from app.integrations.ga4.service import get_ga4_report
-from app.integrations.googleSheets.client import get_sheets_client
 from app.integrations.googleSheets.service import get_sheet_data
-from app.integrations.gsc.client import get_gsc_client
 from app.integrations.gsc.service import get_search_performance
 from app.middlewares.protect_route import protect_route
 from app.models.integration_data import (
@@ -35,11 +34,44 @@ GA4_METRICS = ["totalUsers", "sessions", "screenPageViews"]
 SHEETS_DEFAULT_RANGE = "A1:J100"
 
 
+def parse_month(month: str | None) -> date | None:
+    """'2026-10' -> date(2026, 10, 1). Raises 422 for bad input or future months."""
+    if not month:
+        return None
+    try:
+        year, month_number = (int(part) for part in month.split("-"))
+        first = date(year, month_number, 1)
+    except (ValueError, TypeError) as error:
+        raise HTTPException(status_code=422, detail="month must look like YYYY-MM.") from error
+    today = datetime.now(timezone.utc).date()
+    if first >= today.replace(day=1):
+        raise HTTPException(status_code=422, detail="Only completed months can be reported.")
+    return first
+
+
+def latest_reportable_month(today: date | None = None) -> date:
+    """Search Console data lags 2-3 days, so a month is reportable from the 4th
+    of the following month. Returns the first day of that month."""
+    today = today or datetime.now(timezone.utc).date()
+    previous = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    if today.day >= 4:
+        return previous
+    return (previous - timedelta(days=1)).replace(day=1)
+
+
 def _period_bounds(
     period: Literal["monthly", "weekly"],
     today: date | None = None,
+    month: date | None = None,
 ) -> tuple[date, date, date, date]:
     today = today or datetime.now(timezone.utc).date()
+    if period == "monthly" and month is not None:
+        current_start = month.replace(day=1)
+        next_month = (current_start + timedelta(days=32)).replace(day=1)
+        current_end = next_month - timedelta(days=1)
+        previous_end = current_start - timedelta(days=1)
+        previous_start = previous_end.replace(day=1)
+        return current_start, current_end, previous_start, previous_end
     if period == "monthly":
         current_start = today.replace(day=1) - timedelta(days=1)
         current_start = current_start.replace(day=1)
@@ -56,16 +88,33 @@ def _period_bounds(
     return current_start, current_end, previous_start, previous_end
 
 
+_RECORD_KEYS = {
+    "ga4_reports": ("workspace_id", "client_id", "property_id", "start_date", "end_date", "dimension_headers"),
+    "gsc_search_reports": ("workspace_id", "client_id", "site_url", "start_date", "end_date", "dimensions"),
+    "google_sheets_reports": ("workspace_id", "client_id", "spreadsheet_id", "range_name"),
+}
+
+
 def _insert_record(collection_name: str, record: Any) -> str:
+    """Store a snapshot. Re-running the same period overwrites it instead of
+    piling up duplicates."""
+    document = record.model_dump()
+    key_fields = _RECORD_KEYS.get(collection_name)
     try:
-        result = get_database()[collection_name].insert_one(record.model_dump())
+        collection = get_database()[collection_name]
+        if key_fields:
+            key = {field: document.get(field) for field in key_fields}
+            result = collection.find_one_and_replace(
+                key, document, upsert=True, return_document=True, projection={"_id": 1}
+            )
+            return str(result["_id"])
+        return str(collection.insert_one(document).inserted_id)
     except Exception as error:
         logger.exception("Unable to store %s data", collection_name)
         raise HTTPException(
             status_code=500,
             detail=f"Unable to store {collection_name} data.",
         ) from error
-    return str(result.inserted_id)
 
 
 def _fetch_and_store_ga4(
@@ -340,9 +389,10 @@ def _dashboard_from_database(
     workspace_id: str,
     client_id: str,
     period: Literal["monthly", "weekly"],
+    month: date | None = None,
 ):
     client = get_workspace_client(workspace_id, client_id)
-    current_start, current_end, previous_start, previous_end = _period_bounds(period)
+    current_start, current_end, previous_start, previous_end = _period_bounds(period, month=month)
     current_filter = {
         "workspace_id": workspace_id,
         "client_id": client_id,
@@ -555,7 +605,9 @@ def _refresh_ga4(
         "ga4",
         "property_id",
     )
-    client = get_ga4_client(ga4_credentials_path())
+    client = build_source_client(
+        get_workspace_client(workspace_id, client_id), "ga4", ga4_credentials_path()
+    )
     record_ids = []
     for period_start, period_end in ((start, end), (previous_start, previous_end)):
         start_string = period_start.isoformat()
@@ -599,7 +651,9 @@ def _refresh_gsc(
         "gsc",
         "property_url",
     )
-    client = get_gsc_client(gsc_credentials_path())
+    client = build_source_client(
+        get_workspace_client(workspace_id, client_id), "gsc", gsc_credentials_path()
+    )
     record_ids = []
     for period_start, period_end in ((start, end), (previous_start, previous_end)):
         start_string = period_start.isoformat()
@@ -648,7 +702,9 @@ def _refresh_sheets(workspace_id: str, client_id: str):
         "google_sheets",
         "property_id",
     )
-    client = get_sheets_client(sheets_credentials_path())
+    client = build_source_client(
+        get_workspace_client(workspace_id, client_id), "google_sheets", sheets_credentials_path()
+    )
     values = get_sheet_data(
         service=client,
         spreadsheet_id=spreadsheet_id,
@@ -675,10 +731,18 @@ def _refresh_status(function, *args) -> dict[str, Any]:
             return {"status": "refreshed", "record_ids": record_ids}
         return {"status": "refreshed", "record_id": record_ids}
     except HTTPException as error:
+        if error.status_code == 409 and "Google account" in str(error.detail):
+            return {"status": "error", "detail": error.detail}
         if error.status_code in (404, 409):
             return {"status": "not_configured", "detail": error.detail}
         logger.exception("Integration refresh failed")
         return {"status": "error", "detail": "Integration refresh failed."}
+    except RefreshError:
+        logger.warning("Google token refresh failed", exc_info=True)
+        return {
+            "status": "error",
+            "detail": "Google access expired or was revoked. Reconnect the Google account in Settings.",
+        }
     except Exception:
         logger.exception("Integration refresh failed")
         return {"status": "error", "detail": "Integration refresh failed."}
@@ -687,10 +751,14 @@ def _refresh_status(function, *args) -> dict[str, Any]:
 @analytics_router.get("/monthly")
 def get_monthly_analytics(
     client_id: str,
+    month: str | None = None,
     user: dict[str, Any] = Depends(protect_route),
 ):
     workspace_id = _authenticated_workspace_id(user)
-    return _dashboard_from_database(workspace_id, client_id, "monthly")
+    month_start = parse_month(month)
+    if month_start is None:
+        return _dashboard_from_database(workspace_id, client_id, "monthly")
+    return _dashboard_from_database(workspace_id, client_id, "monthly", month_start)
 
 
 @analytics_router.get("/weekly")
@@ -706,11 +774,31 @@ def get_weekly_analytics(
 def refresh_analytics(
     client_id: str,
     period: Literal["monthly", "weekly"] = "monthly",
+    month: str | None = None,
     user: dict[str, Any] = Depends(protect_route),
 ):
-    start, end, previous_start, previous_end = _period_bounds(period)
+    month_start = parse_month(month) if period == "monthly" else None
     workspace_id = _authenticated_workspace_id(user)
-    refresh = {
+    refresh = refresh_sources(workspace_id, client_id, period, month_start)
+    if month_start is None:
+        dashboard = _dashboard_from_database(workspace_id, client_id, period)
+    else:
+        dashboard = _dashboard_from_database(workspace_id, client_id, period, month_start)
+    dashboard["refresh"] = refresh
+    return dashboard
+
+
+def refresh_sources(
+    workspace_id: str,
+    client_id: str,
+    period: Literal["monthly", "weekly"],
+    month_start: date | None = None,
+) -> dict[str, Any]:
+    if month_start is None:
+        start, end, previous_start, previous_end = _period_bounds(period)
+    else:
+        start, end, previous_start, previous_end = _period_bounds(period, month=month_start)
+    return {
         "ga4": _refresh_status(
             _refresh_ga4,
             workspace_id,
@@ -735,6 +823,3 @@ def refresh_analytics(
             client_id,
         ),
     }
-    dashboard = _dashboard_from_database(workspace_id, client_id, period)
-    dashboard["refresh"] = refresh
-    return dashboard
