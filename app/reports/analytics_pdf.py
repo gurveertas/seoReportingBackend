@@ -625,7 +625,7 @@ def generate_analytics_pdf(
         story.append(Paragraph(heading, styles["section_heading"]))
         pill_style = ParagraphStyle(
             "PlanPill", parent=styles["body"], leftIndent=8, rightIndent=8,
-            fontName=_FONT_BOLD, textColor=_NAVY, spaceBefore=6, spaceAfter=7,
+            fontName=_FONT_BOLD, textColor=_NAVY, spaceBefore=8, spaceAfter=15,
         )
         for plan in plans:
             story.append(_PlanPill(escape(plan), pill_style))
