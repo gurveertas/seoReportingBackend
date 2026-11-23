@@ -227,8 +227,10 @@ class _PlanPill(Paragraph):
     def draw(self):
         width = max(self.getActualLineWidths0(), default=0) + 16
         self.canv.saveState()
-        self.canv.setFillColor(_PALE)
-        self.canv.roundRect(0, -2, min(self.width, width), self.height + 4, 7, stroke=0, fill=1)
+        self.canv.setFillColor(colors.HexColor("#DBF2EF"))
+        self.canv.setStrokeColor(_TEAL)
+        self.canv.setLineWidth(0.9)
+        self.canv.roundRect(0, -3, min(self.width, width), self.height + 6, 9, stroke=1, fill=1)
         self.canv.restoreState()
         super().draw()
 
@@ -623,7 +625,7 @@ def generate_analytics_pdf(
         story.append(Paragraph(heading, styles["section_heading"]))
         pill_style = ParagraphStyle(
             "PlanPill", parent=styles["body"], leftIndent=8, rightIndent=8,
-            spaceBefore=4, spaceAfter=5,
+            fontName=_FONT_BOLD, textColor=_NAVY, spaceBefore=6, spaceAfter=7,
         )
         for plan in plans:
             story.append(_PlanPill(escape(plan), pill_style))
