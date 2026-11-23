@@ -571,7 +571,7 @@ def _dashboard_from_database(
                         or gsc_queries
                         or gsc_pages
                         or {}
-                    ).get("site_url")
+                    ).get("site_url") or ((client.get("integrations") or {}).get("gsc") or {}).get("property_url")
                 ),
             },
             "ga4": {

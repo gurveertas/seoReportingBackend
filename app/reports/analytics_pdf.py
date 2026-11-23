@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import reportlab
+from app.reports.pagespeed import pagespeed_section
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -612,6 +614,8 @@ def generate_analytics_pdf(
             Spacer(1, 6),
             _paragraph(f"No stored data for {missing}.", styles["body"]),
         ])
+
+    story.extend(pagespeed_section(site_url, styles["section_heading"], styles["body"]))
 
     plans = [plan.strip() for plan in next_plans or [] if plan.strip()]
     if plans:

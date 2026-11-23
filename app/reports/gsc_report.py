@@ -1,6 +1,8 @@
 from html import escape
 from pathlib import Path
 
+from app.reports.pagespeed import pagespeed_section
+
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
@@ -134,6 +136,8 @@ def generate_gsc_pdf(data, output_path="reports/seo_report.pdf"):
             body,
         ),
     ]
+
+    story.extend(pagespeed_section(data.property_url, heading, body))
 
     def draw_footer(canvas, doc):
         left = doc.leftMargin + 6
