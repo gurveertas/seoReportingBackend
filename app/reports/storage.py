@@ -109,6 +109,7 @@ def generate_monthly_report(
     trigger: Trigger = "manual",
     comparison: bool = False,
     next_plans: list[str] | None = None,
+    bounds: tuple[date, date, date, date] | None = None,
 ) -> dict[str, Any]:
     """Pull fresh data (optional), render the PDF and store it, replacing any
     earlier report for the same month. Never stores a partial report: if
@@ -125,7 +126,7 @@ def generate_monthly_report(
 
     try:
         if refresh:
-            result = refresh_sources(workspace_id, client_id, "monthly", month_start)
+            result = refresh_sources(workspace_id, client_id, "monthly", month_start, bounds=bounds)
             gsc = result.get("gsc", {})
             if gsc.get("status") == "not_configured":
                 raise ReportGenerationError("Search Console is not set up for this website.")
@@ -137,7 +138,7 @@ def generate_monthly_report(
             if result.get("google_sheets", {}).get("status") == "error":
                 warnings.append("Google Sheets data could not be read; that section was left out.")
 
-        dashboard = _dashboard_from_database(workspace_id, client_id, "monthly", month_start)
+        dashboard = _dashboard_from_database(workspace_id, client_id, "monthly", month_start, bounds=bounds)
         if dashboard.get("sources", {}).get("gsc", {}).get("status") != "available":
             raise ReportGenerationError("No Search Console data is stored for this month yet.")
         pdf_bytes = generate_analytics_pdf(

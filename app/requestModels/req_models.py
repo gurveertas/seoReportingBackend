@@ -1,3 +1,4 @@
+from datetime import date
 from typing import List, Optional
 
 from pydantic import (
@@ -114,7 +115,12 @@ class SiteImportRequest(BaseModel):
 
 
 class ReportOptions(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    start_date: date | None = None
+    end_date: date | None = None
+    comparison_start_date: date | None = None
+    comparison_end_date: date | None = None
 
     comparison: bool = False
     next_plans: list[str] = Field(default_factory=list, alias="next-plans")

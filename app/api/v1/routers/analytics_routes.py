@@ -59,6 +59,32 @@ def latest_reportable_month(today: date | None = None) -> date:
     return (previous - timedelta(days=1)).replace(day=1)
 
 
+DateBounds = tuple[date, date, date, date]
+
+
+def _requested_bounds(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    comparison_start_date: date | None = None,
+    comparison_end_date: date | None = None,
+) -> DateBounds | None:
+    if all(value is None for value in (
+        start_date, end_date, comparison_start_date, comparison_end_date
+    )):
+        return None
+    if start_date is None or end_date is None or start_date > end_date:
+        raise HTTPException(422, "Provide start_date and end_date in chronological order.")
+    if comparison_start_date is None and comparison_end_date is None:
+        try:
+            comparison_end_date = start_date - timedelta(days=1)
+            comparison_start_date = comparison_end_date - (end_date - start_date)
+        except OverflowError as error:
+            raise HTTPException(422, "The preceding comparison range is outside supported dates.") from error
+    if comparison_start_date is None or comparison_end_date is None or comparison_start_date > comparison_end_date:
+        raise HTTPException(422, "Provide both comparison dates in chronological order.")
+    return start_date, end_date, comparison_start_date, comparison_end_date
+
+
 def _period_bounds(
     period: Literal["monthly", "weekly"],
     today: date | None = None,
@@ -390,9 +416,10 @@ def _dashboard_from_database(
     client_id: str,
     period: Literal["monthly", "weekly"],
     month: date | None = None,
+    bounds: DateBounds | None = None,
 ):
     client = get_workspace_client(workspace_id, client_id)
-    current_start, current_end, previous_start, previous_end = _period_bounds(period, month=month)
+    current_start, current_end, previous_start, previous_end = bounds or _period_bounds(period, month=month)
     current_filter = {
         "workspace_id": workspace_id,
         "client_id": client_id,
@@ -753,8 +780,11 @@ def get_monthly_analytics(
     client_id: str,
     month: str | None = None,
     user: dict[str, Any] = Depends(protect_route),
+    bounds: DateBounds | None = Depends(_requested_bounds),
 ):
     workspace_id = _authenticated_workspace_id(user)
+    if bounds is not None:
+        return _dashboard_from_database(workspace_id, client_id, "monthly", bounds=bounds)
     month_start = parse_month(month)
     if month_start is None:
         return _dashboard_from_database(workspace_id, client_id, "monthly")
@@ -765,9 +795,10 @@ def get_monthly_analytics(
 def get_weekly_analytics(
     client_id: str,
     user: dict[str, Any] = Depends(protect_route),
+    bounds: DateBounds | None = Depends(_requested_bounds),
 ):
     workspace_id = _authenticated_workspace_id(user)
-    return _dashboard_from_database(workspace_id, client_id, "weekly")
+    return _dashboard_from_database(workspace_id, client_id, "weekly", bounds=bounds)
 
 
 @analytics_router.post("/refresh")
@@ -776,11 +807,14 @@ def refresh_analytics(
     period: Literal["monthly", "weekly"] = "monthly",
     month: str | None = None,
     user: dict[str, Any] = Depends(protect_route),
+    bounds: DateBounds | None = Depends(_requested_bounds),
 ):
-    month_start = parse_month(month) if period == "monthly" else None
+    month_start = parse_month(month) if period == "monthly" and bounds is None else None
     workspace_id = _authenticated_workspace_id(user)
-    refresh = refresh_sources(workspace_id, client_id, period, month_start)
-    if month_start is None:
+    refresh = refresh_sources(workspace_id, client_id, period, month_start, bounds=bounds)
+    if bounds is not None:
+        dashboard = _dashboard_from_database(workspace_id, client_id, period, bounds=bounds)
+    elif month_start is None:
         dashboard = _dashboard_from_database(workspace_id, client_id, period)
     else:
         dashboard = _dashboard_from_database(workspace_id, client_id, period, month_start)
@@ -793,8 +827,11 @@ def refresh_sources(
     client_id: str,
     period: Literal["monthly", "weekly"],
     month_start: date | None = None,
+    bounds: DateBounds | None = None,
 ) -> dict[str, Any]:
-    if month_start is None:
+    if bounds is not None:
+        start, end, previous_start, previous_end = bounds
+    elif month_start is None:
         start, end, previous_start, previous_end = _period_bounds(period)
     else:
         start, end, previous_start, previous_end = _period_bounds(period, month=month_start)

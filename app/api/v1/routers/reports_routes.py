@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.routers.analytics_routes import (
+    DateBounds,
+    _requested_bounds,
     _authenticated_workspace_id,
     _dashboard_from_database,
     latest_reportable_month,
@@ -41,6 +43,13 @@ def _pdf_response(content: bytes, filename: str) -> StreamingResponse:
     )
 
 
+def _report_bounds(payload: ReportOptions) -> DateBounds | None:
+    return _requested_bounds(
+        payload.start_date, payload.end_date,
+        payload.comparison_start_date, payload.comparison_end_date,
+    )
+
+
 def _report_response(
     period: Literal["monthly", "weekly"],
     client_id: str,
@@ -48,10 +57,13 @@ def _report_response(
     month: str | None = None,
     comparison: bool = False,
     next_plans: list[str] | None = None,
+    bounds: DateBounds | None = None,
 ) -> StreamingResponse:
     workspace_id = _authenticated_workspace_id(user)
     month_start = parse_month(month) if period == "monthly" else None
-    if month_start is None:
+    if bounds is not None:
+        dashboard = _dashboard_from_database(workspace_id, client_id, period, bounds=bounds)
+    elif month_start is None:
         dashboard = _dashboard_from_database(workspace_id, client_id, period)
     else:
         dashboard = _dashboard_from_database(workspace_id, client_id, period, month_start)
@@ -85,11 +97,13 @@ def generate_and_store_monthly_report(
 ):
     payload = payload or ReportGenerateRequest()
     workspace_id = _authenticated_workspace_id(user)
-    month_start = parse_month(payload.month) or latest_reportable_month()
+    bounds = _report_bounds(payload)
+    default_month = bounds[0].replace(day=1) if bounds else latest_reportable_month()
+    month_start = parse_month(payload.month) or default_month
     try:
         report = generate_monthly_report(
             workspace_id, client_id, month_start, refresh=payload.refresh, trigger="manual",
-            comparison=payload.comparison, next_plans=payload.next_plans,
+            comparison=payload.comparison, next_plans=payload.next_plans, bounds=bounds,
         )
     except ReportGenerationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -124,7 +138,8 @@ def generate_weekly_report(
     user: dict[str, Any] = Depends(protect_route),
 ) -> StreamingResponse:
     return _report_response(
-        "weekly", client_id, user, comparison=payload.comparison, next_plans=payload.next_plans
+        "weekly", client_id, user, comparison=payload.comparison, next_plans=payload.next_plans,
+        bounds=_report_bounds(payload),
     )
 
 
