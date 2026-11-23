@@ -1,251 +1,150 @@
+from html import escape
+from pathlib import Path
 
-import os
-import matplotlib.pyplot as plt
-
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    Image,
-    PageBreak
-)
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+
+
+_NAVY = colors.HexColor("#102A43")
+_TEAL = colors.HexColor("#0F766E")
+_BLUE = colors.HexColor("#3563A9")
+_MUTED = colors.HexColor("#526477")
+_GRID = colors.HexColor("#D7E1E9")
+_PALE = colors.HexColor("#F3F7FA")
+
+
+def _metric_chart(value, label, width, color):
+    drawing = Drawing(width, 205)
+    chart = VerticalBarChart()
+    chart.x = 45
+    chart.y = 24
+    chart.width = width - 59
+    chart.height = 165
+    chart.data = [(value,)]
+    chart.bars[0].fillColor = color
+    chart.bars[0].strokeColor = None
+    chart.categoryAxis.categoryNames = [label]
+    chart.categoryAxis.labels.fontSize = 9
+    chart.valueAxis.valueMin = 0
+    chart.valueAxis.valueMax = max(1, value) * 1.1
+    if value == 0:
+        chart.valueAxis.valueMax = 1
+        chart.valueAxis.valueStep = 1
+    chart.valueAxis.labels.fontSize = 8
+    chart.valueAxis.labels.fillColor = _MUTED
+    chart.valueAxis.visibleGrid = True
+    chart.valueAxis.gridStrokeColor = _GRID
+    drawing.add(chart)
+    return drawing
 
 
 def generate_gsc_pdf(data, output_path="reports/seo_report.pdf"):
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     metrics = data.metrics
     period = data.period
-
-    # -------------------------
-    # 1. Generate charts
-    # -------------------------
-
-    chart_dir = "reports/charts"
-    os.makedirs(chart_dir, exist_ok=True)
-
-    clicks_chart = os.path.join(chart_dir, "clicks.png")
-    impressions_chart = os.path.join(chart_dir, "impressions.png")
-
-    # Clicks chart
-    plt.figure(figsize=(6, 3))
-
-    plt.bar(
-        ["Organic Clicks"],
-        [metrics.clicks]
-    )
-
-    plt.title("Organic Search Clicks")
-    plt.ylabel("Clicks")
-
-    plt.tight_layout()
-    plt.savefig(clicks_chart, dpi=200)
-    plt.close()
-
-    # Impressions chart
-    plt.figure(figsize=(6, 3))
-
-    plt.bar(
-        ["Impressions"],
-        [metrics.impressions]
-    )
-
-    plt.title("Search Impressions")
-    plt.ylabel("Impressions")
-
-    plt.tight_layout()
-    plt.savefig(impressions_chart, dpi=200)
-    plt.close()
-
-    # -------------------------
-    # 2. Create PDF
-    # -------------------------
-
-    pdf = SimpleDocTemplate(
-        output_path,
+    document = SimpleDocTemplate(
+        str(output_path),
         pagesize=A4,
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=40,
-        bottomMargin=40
+        rightMargin=37,
+        leftMargin=37,
+        topMargin=45,
+        bottomMargin=43,
+        title="SEO Performance Report",
     )
-
+    # SimpleDocTemplate uses a 6 pt inset at each edge of its frame.
+    width = document.width - 12
     styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "ReportTitle",
-        parent=styles["Title"],
-        fontSize=22,
-        textColor=colors.HexColor("#1F2937"),
-        spaceAfter=10
+    title = ParagraphStyle(
+        "ReportTitle", parent=styles["Heading1"], textColor=_NAVY,
+        fontSize=26, leading=31, spaceAfter=8,
+    )
+    heading = ParagraphStyle(
+        "ReportHeading", parent=styles["Heading2"], textColor=_NAVY,
+        fontSize=13, leading=16, spaceBefore=18, spaceAfter=7,
+    )
+    body = ParagraphStyle(
+        "ReportBody", parent=styles["Normal"], textColor=_MUTED,
+        fontSize=10.5, leading=16, spaceAfter=14,
     )
 
-    heading_style = ParagraphStyle(
-        "SectionHeading",
-        parent=styles["Heading2"],
-        textColor=colors.HexColor("#2563EB"),
-        spaceBefore=15,
-        spaceAfter=10
-    )
-
-    normal_style = styles["Normal"]
-
-    content = []
-
-    # -------------------------
-    # 3. Report Header
-    # -------------------------
-
-    content.append(
-        Paragraph("SEO PERFORMANCE REPORT", title_style)
-    )
-
-    content.append(
-        Paragraph(
-            f"<b>Website:</b> {data.property_url}",
-            normal_style
-        )
-    )
-
-    content.append(
-        Paragraph(
-            f"<b>Reporting Period:</b> "
-            f"{period.start_date} to {period.end_date}",
-            normal_style
-        )
-    )
-
-    content.append(Spacer(1, 20))
-
-    # -------------------------
-    # 4. KPI Table
-    # -------------------------
-
-    kpi_data = [
-        ["CLICKS", "IMPRESSIONS", "CTR", "AVG POSITION"],
+    clicks = f"{metrics.clicks:,}"
+    impressions = f"{metrics.impressions:,}"
+    ctr = f"{metrics.ctr:.2%}"
+    position = f"{metrics.position:.2f}"
+    kpis = Table(
         [
-            str(metrics.clicks),
-            str(metrics.impressions),
-            f"{metrics.ctr * 100:.2f}%",
-            f"{metrics.position:.2f}"
-        ]
-    ]
-
-    kpi_table = Table(
-        kpi_data,
-        colWidths=[125, 125, 125, 125]
-    )
-
-    kpi_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0),
-             colors.HexColor("#1F2937")),
-
-            ("TEXTCOLOR", (0, 0), (-1, 0),
-             colors.white),
-
-            ("BACKGROUND", (0, 1), (-1, 1),
-             colors.HexColor("#F3F4F6")),
-
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-
-            ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
-
+            ["Clicks", "Impressions", "Click-through rate", "Average position"],
+            [clicks, impressions, ctr, position],
+        ],
+        colWidths=[width / 4] * 4,
+        style=TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), _NAVY),
+            ("BACKGROUND", (0, 1), (-1, 1), _PALE),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("TEXTCOLOR", (0, 1), (-1, 1), _NAVY),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
             ("FONTSIZE", (0, 0), (-1, 0), 9),
-
             ("FONTSIZE", (0, 1), (-1, 1), 16),
-
-            ("TOPPADDING", (0, 0), (-1, -1), 14),
-
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
-
-            ("BOX", (0, 0), (-1, -1), 0.5,
-             colors.HexColor("#D1D5DB")),
-
-            ("INNERGRID", (0, 0), (-1, -1), 0.5,
-             colors.HexColor("#D1D5DB"))
-        ])
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, _GRID),
+        ]),
     )
 
-    content.append(kpi_table)
-
-    content.append(Spacer(1, 20))
-
-    # -------------------------
-    # 5. Performance Charts
-    # -------------------------
-
-    content.append(
-        Paragraph("Performance Overview", heading_style)
+    gutter = 8
+    chart_width = (width - gutter) / 2
+    charts = Table(
+        [[
+            _metric_chart(metrics.clicks, "Organic clicks", chart_width, _TEAL),
+            "",
+            _metric_chart(metrics.impressions, "Search impressions", chart_width, _BLUE),
+        ]],
+        colWidths=[chart_width, gutter, chart_width],
+        style=TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("BOX", (0, 0), (0, 0), 0.5, _GRID),
+            ("BOX", (2, 0), (2, 0), 0.5, _GRID),
+        ]),
     )
 
-    content.append(
-        Image(clicks_chart, width=220, height=150)
-    )
-
-    content.append(
-        Image(impressions_chart, width=220, height=150)
-    )
-
-    content.append(Spacer(1, 15))
-
-    # -------------------------
-    # 6. Basic Insights
-    # -------------------------
-
-    content.append(
-        Paragraph("SEO Insights", heading_style)
-    )
-
-    ctr_percent = metrics.ctr * 100
-
-    insights = [
-        f"The website received {metrics.clicks} organic clicks "
-        f"during the reporting period.",
-
-        f"The website appeared {metrics.impressions} times "
-        f"in Google Search results.",
-
-        f"The average click-through rate was {ctr_percent:.2f}%.",
-
-        f"The average search position was "
-        f"{metrics.position:.2f}."
+    story = [
+        Paragraph("SEO Performance Report", title),
+        Paragraph(
+            f"<b>Website</b>  {escape(str(data.property_url))}<br/>"
+            f"<b>Reporting period</b>  {escape(str(period.start_date))} to "
+            f"{escape(str(period.end_date))}",
+            body,
+        ),
+        kpis,
+        Paragraph("Performance overview", heading),
+        charts,
+        Paragraph("SEO insights", heading),
+        Paragraph(
+            f"The website received {clicks} organic clicks from {impressions} "
+            f"Google Search impressions. The click-through rate was {ctr} "
+            f"and the average search position was {position}.",
+            body,
+        ),
     ]
 
-    for insight in insights:
-        content.append(
-            Paragraph(f"• {insight}", normal_style)
-        )
-        content.append(Spacer(1, 6))
+    def draw_footer(canvas, doc):
+        left = doc.leftMargin + 6
+        canvas.saveState()
+        canvas.setStrokeColor(_GRID)
+        canvas.line(left, 31, left + width, 31)
+        canvas.setFillColor(_MUTED)
+        canvas.setFont("Helvetica", 8)
+        canvas.drawString(left, 21, "Source: Google Search Console")
+        canvas.drawRightString(left + width, 21, f"Page {doc.page}")
+        canvas.restoreState()
 
-    # -------------------------
-    # 7. Footer information
-    # -------------------------
-
-    content.append(Spacer(1, 20))
-
-    content.append(
-        Paragraph(
-            "Generated automatically using Google Search Console data.",
-            styles["Italic"]
-        )
-    )
-
-    # -------------------------
-    # 8. Build PDF
-    # -------------------------
-
-    pdf.build(content)
-
-    print(f"PDF report generated: {output_path}")
-
+    document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
     return output_path

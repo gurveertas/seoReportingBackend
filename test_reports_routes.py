@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 from unittest.mock import patch
 
@@ -79,6 +80,7 @@ class ReportsRouteTests(unittest.TestCase):
                         self.assertEqual(response.status_code, 200)
                         self.assertEqual(response.headers["content-type"], "application/pdf")
                         self.assertTrue(response.content.startswith(b"%PDF-"))
+                        self.assertEqual(len(re.findall(rb"/Type /Page\b", response.content)), 1)
                         self.assertIn(
                             f"seo-report-{period}-2026-10-01-2026-10-31.pdf",
                             response.headers["content-disposition"],
@@ -98,7 +100,12 @@ class ReportsRouteTests(unittest.TestCase):
             "period": {},
             "sources": {},
             "kpis": [],
-            "charts": {},
+            "charts": {
+                "gsc_daily": {
+                    "labels": [],
+                    "datasets": [{"label": "Clicks", "data": []}],
+                },
+            },
             "tables": {},
         }
         token = jwt.encode(
@@ -127,3 +134,4 @@ class ReportsRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.content.startswith(b"%PDF-"))
+        self.assertEqual(len(re.findall(rb"/Type /Page\b", response.content)), 1)
