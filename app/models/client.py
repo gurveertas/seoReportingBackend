@@ -42,6 +42,7 @@ class Client(BaseModel):
     # is then pulled with that account's OAuth token instead of the service account.
     google_connection_id: str | None = None
     # Generate this client's monthly report automatically (see app/jobs/monthly.py).
+    comparison: bool = False
     auto_monthly: bool = False
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)

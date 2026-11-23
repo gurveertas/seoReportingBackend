@@ -44,6 +44,7 @@ class ClientCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     integrations: Integrations = Field(default_factory=Integrations)
+    comparison: bool = False
     auto_monthly: bool = False
 
     @field_validator("name")
@@ -60,6 +61,7 @@ class ClientUpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     integrations: Integrations | None = None
+    comparison: bool = False
     auto_monthly: bool | None = None
 
     @model_validator(mode="after")
@@ -111,7 +113,14 @@ class SiteImportRequest(BaseModel):
     auto_monthly: bool = True
 
 
-class ReportGenerateRequest(BaseModel):
+class ReportOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comparison: bool = False
+    next_plans: list[str] = Field(default_factory=list, alias="next-plans")
+
+
+class ReportGenerateRequest(ReportOptions):
     model_config = ConfigDict(extra="forbid")
 
     month: str | None = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")

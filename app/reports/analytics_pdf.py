@@ -221,11 +221,21 @@ class _LineChart(Flowable):
         canvas.restoreState()
 
 
+class _PlanPill(Paragraph):
+    def draw(self):
+        width = max(self.getActualLineWidths0(), default=0) + 16
+        self.canv.saveState()
+        self.canv.setFillColor(_PALE)
+        self.canv.roundRect(0, -2, min(self.width, width), self.height + 4, 7, stroke=0, fill=1)
+        self.canv.restoreState()
+        super().draw()
+
+
 def _paragraph(value: Any, style: ParagraphStyle) -> Paragraph:
     return Paragraph(escape(_safe_text(value if value is not None else "")), style)
 
 
-def _make_kpi_card(kpi: dict[str, Any], styles) -> list[Paragraph]:
+def _make_kpi_card(kpi: dict[str, Any], styles, hide_comparison: bool) -> list[Paragraph]:
     trend = kpi.get("trend")
     change_color = _GREEN if trend == "up" else _RED if trend == "down" else _MUTED
     card_accent = _BLUE if str(kpi.get("key", "")).startswith("ga4_") else _TEAL
@@ -240,11 +250,13 @@ def _make_kpi_card(kpi: dict[str, Any], styles) -> list[Paragraph]:
     value = _format_number(kpi.get("value"))
     if kpi.get("key") == "gsc_ctr" and kpi.get("value") is not None:
         value += "%"
-    return [
+    paragraphs = [
         _paragraph(kpi.get("label", ""), label_style),
         _paragraph(value, styles["kpi_value"]),
-        _paragraph(_kpi_change_text(kpi), change_style),
     ]
+    if not hide_comparison:
+        paragraphs.append(_paragraph(_kpi_change_text(kpi), change_style))
+    return paragraphs
 
 
 def _panel_row(
@@ -352,6 +364,9 @@ def generate_analytics_pdf(
     dashboard: dict[str, Any],
     period: str,
     client_name: str,
+    *,
+    comparison: bool = False,
+    next_plans: list[str] | None = None,
 ) -> bytes:
     _register_fonts()
     output = io.BytesIO()
@@ -471,7 +486,7 @@ def generate_analytics_pdf(
         ("Compared with", "comparison_start_date", "comparison_end_date"),
     ):
         start, end = period_data.get(start_key), period_data.get(end_key)
-        if start and end:
+        if start and end and not (comparison and start_key == "comparison_start_date"):
             subtitle_parts.append(f"{label}: {start} to {end}")
     if site_url:
         subtitle_parts.append(f"Search Console property: {_safe_text(site_url)}")
@@ -519,7 +534,7 @@ def generate_analytics_pdf(
     kpis = dashboard.get("kpis", [])
     if any(kpi.get("value") is not None for kpi in kpis):
         for index in range(0, len(kpis), 4):
-            cards = [_make_kpi_card(kpi, styles) for kpi in kpis[index : index + 4]]
+            cards = [_make_kpi_card(kpi, styles, comparison) for kpi in kpis[index : index + 4]]
             story.append(
                 _panel_row(cards, content_width, metric_cards=True)
             )
@@ -597,6 +612,17 @@ def generate_analytics_pdf(
             Spacer(1, 6),
             _paragraph(f"No stored data for {missing}.", styles["body"]),
         ])
+
+    plans = [plan.strip() for plan in next_plans or [] if plan.strip()]
+    if plans:
+        heading = "Next week plan" if period == "weekly" else "Next month plan"
+        story.append(Paragraph(heading, styles["section_heading"]))
+        pill_style = ParagraphStyle(
+            "PlanPill", parent=styles["body"], leftIndent=8, rightIndent=8,
+            spaceBefore=4, spaceAfter=5,
+        )
+        for plan in plans:
+            story.append(_PlanPill(escape(plan), pill_style))
 
     def draw_page(canvas, doc):
         left = doc.leftMargin + _FRAME_PADDING / 2

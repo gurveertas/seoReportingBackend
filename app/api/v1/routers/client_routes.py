@@ -94,6 +94,7 @@ def _client_response(client: dict[str, Any]) -> dict[str, Any]:
         "name": client["name"],
         "integrations": client.get("integrations") or {},
         "google_connection_id": client.get("google_connection_id"),
+        "comparison": client.get("comparison", False),
         "auto_monthly": bool(client.get("auto_monthly", False)),
         "created_at": client.get("created_at"),
         "updated_at": client.get("updated_at"),
@@ -366,6 +367,7 @@ def create_client(
         workspace_id=workspace_id,
         name=client_request.name,
         integrations=client_request.integrations,
+        comparison=client_request.comparison,
         auto_monthly=client_request.auto_monthly,
     )
     client_id = save_client(client)

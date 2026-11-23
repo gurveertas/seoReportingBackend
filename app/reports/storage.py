@@ -107,6 +107,8 @@ def generate_monthly_report(
     month_start: date,
     refresh: bool = True,
     trigger: Trigger = "manual",
+    comparison: bool = False,
+    next_plans: list[str] | None = None,
 ) -> dict[str, Any]:
     """Pull fresh data (optional), render the PDF and store it, replacing any
     earlier report for the same month. Never stores a partial report: if
@@ -138,7 +140,9 @@ def generate_monthly_report(
         dashboard = _dashboard_from_database(workspace_id, client_id, "monthly", month_start)
         if dashboard.get("sources", {}).get("gsc", {}).get("status") != "available":
             raise ReportGenerationError("No Search Console data is stored for this month yet.")
-        pdf_bytes = generate_analytics_pdf(dashboard, "monthly", client["name"])
+        pdf_bytes = generate_analytics_pdf(
+            dashboard, "monthly", client["name"], comparison=comparison, next_plans=next_plans
+        )
     except ReportGenerationError as error:
         _log_run(workspace_id, client_id, month, "failed", started, trigger, str(error))
         if trigger == "scheduled":

@@ -1,8 +1,8 @@
 from io import BytesIO
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.routers.analytics_routes import (
@@ -24,7 +24,7 @@ from app.reports.storage import (
     read_report_file,
     report_filename,
 )
-from app.requestModels.req_models import ReportGenerateRequest
+from app.requestModels.req_models import ReportGenerateRequest, ReportOptions
 
 reports_router = APIRouter(dependencies=[Depends(protect_route)])
 workspace_reports_router = APIRouter(dependencies=[Depends(protect_route)])
@@ -46,6 +46,8 @@ def _report_response(
     client_id: str,
     user: dict[str, Any],
     month: str | None = None,
+    comparison: bool = False,
+    next_plans: list[str] | None = None,
 ) -> StreamingResponse:
     workspace_id = _authenticated_workspace_id(user)
     month_start = parse_month(month) if period == "monthly" else None
@@ -54,7 +56,9 @@ def _report_response(
     else:
         dashboard = _dashboard_from_database(workspace_id, client_id, period, month_start)
     client_name = dashboard["client"]["name"]
-    pdf_content = generate_analytics_pdf(dashboard, period, client_name)
+    pdf_content = generate_analytics_pdf(
+        dashboard, period, client_name, comparison=comparison, next_plans=next_plans
+    )
     period_data = dashboard.get("period", {})
     start_date = period_data.get("start_date", "report")
     end_date = period_data.get("end_date", "")
@@ -84,7 +88,8 @@ def generate_and_store_monthly_report(
     month_start = parse_month(payload.month) or latest_reportable_month()
     try:
         report = generate_monthly_report(
-            workspace_id, client_id, month_start, refresh=payload.refresh, trigger="manual"
+            workspace_id, client_id, month_start, refresh=payload.refresh, trigger="manual",
+            comparison=payload.comparison, next_plans=payload.next_plans,
         )
     except ReportGenerationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -95,17 +100,32 @@ def generate_and_store_monthly_report(
 def get_monthly_report(
     client_id: str,
     month: str | None = None,
+    comparison: bool = False,
+    next_plans: Annotated[list[str] | None, Query(alias="next-plans")] = None,
     user: dict[str, Any] = Depends(protect_route),
 ) -> StreamingResponse:
-    return _report_response("monthly", client_id, user, month)
+    return _report_response("monthly", client_id, user, month, comparison, next_plans)
 
 
 @reports_router.get("/weekly", response_class=StreamingResponse)
 def get_weekly_report(
     client_id: str,
+    comparison: bool = False,
+    next_plans: Annotated[list[str] | None, Query(alias="next-plans")] = None,
     user: dict[str, Any] = Depends(protect_route),
 ) -> StreamingResponse:
-    return _report_response("weekly", client_id, user)
+    return _report_response("weekly", client_id, user, comparison=comparison, next_plans=next_plans)
+
+
+@reports_router.post("/weekly/generate", response_class=StreamingResponse)
+def generate_weekly_report(
+    client_id: str,
+    payload: ReportOptions,
+    user: dict[str, Any] = Depends(protect_route),
+) -> StreamingResponse:
+    return _report_response(
+        "weekly", client_id, user, comparison=payload.comparison, next_plans=payload.next_plans
+    )
 
 
 def _owned_report(user: dict[str, Any], report_id: str, client_id: str | None = None) -> dict[str, Any]:
