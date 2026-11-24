@@ -9,6 +9,8 @@ from app.reports.formatting import report_number, report_position
 from app.reports.insights import report_signals
 from app.reports.pagespeed import pagespeed_section
 
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -233,6 +235,31 @@ class _PlanPill(Paragraph):
         self.canv.roundRect(0, -3, min(self.width, width), self.height + 6, 9, stroke=1, fill=1)
         self.canv.restoreState()
         super().draw()
+
+
+def _visitor_channel_chart(channels, width):
+    ranked = sorted(channels.items(), key=lambda item: (-item[1], item[0]))
+    if len(ranked) > 6:
+        ranked = ranked[:5] + [("Remaining channels", sum(count for _, count in ranked[5:]))]
+    total = sum(count for _, count in ranked)
+    palette = [_TEAL, _BLUE, _GOLD, colors.HexColor("#845A92"), _GREEN, _MUTED]
+    drawing = Drawing(width, 118)
+    pie = Pie()
+    pie.x, pie.y = 8, 6
+    pie.width = pie.height = 104
+    pie.data = [count for _, count in ranked]
+    for index, (label, count) in enumerate(ranked):
+        color = palette[index]
+        pie.slices[index].fillColor = color
+        pie.slices[index].strokeColor = colors.white
+        y = 104 - index * 17
+        drawing.add(Rect(136, y, 8, 8, fillColor=color, strokeColor=None))
+        drawing.add(String(151, y, label, fontName=_FONT, fontSize=9, fillColor=_NAVY))
+        share = report_number(100 * count / total)
+        drawing.add(String(width - 8, y, f"{count:,}  ({share}%)", textAnchor="end",
+                           fontName=_FONT_BOLD, fontSize=9, fillColor=_NAVY))
+    drawing.add(pie)
+    return drawing
 
 
 def _paragraph(value: Any, style: ParagraphStyle) -> Paragraph:
@@ -619,6 +646,13 @@ def generate_analytics_pdf(
             )
     else:
         story.append(Paragraph("No daily trend data is stored for this period.", styles["body"]))
+
+    channels = dashboard.get("visitor_channels")
+    if channels:
+        story.append(Paragraph("Visitor acquisition channels", styles["section_heading"]))
+        story.append(_visitor_channel_chart(channels, content_width))
+        story.append(Paragraph("GA4 users by the channel that first brought them to the site.",
+                               styles["body"]))
 
     tables = dashboard.get("tables", {})
     detail_sections = (

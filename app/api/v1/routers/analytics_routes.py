@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 analytics_router = APIRouter(dependencies=[Depends(protect_route)])
 
 GA4_METRICS = ["totalUsers", "sessions", "screenPageViews"]
+VISITOR_CHANNEL = "firstUserDefaultChannelGroup"
 SHEETS_DEFAULT_RANGE = "A1:J100"
 
 
@@ -151,6 +152,7 @@ def _fetch_and_store_ga4(
     start_date: str,
     end_date: str,
     dimensions: list[str],
+    metrics: list[str] | None = None,
 ) -> str:
     response = get_ga4_report(
         client=client,
@@ -158,7 +160,7 @@ def _fetch_and_store_ga4(
         start_date=start_date,
         end_date=end_date,
         dimensions=dimensions,
-        metrics=GA4_METRICS,
+        metrics=metrics or GA4_METRICS,
     )
     dimension_headers = [header.name for header in response.dimension_headers]
     metric_headers = [header.name for header in response.metric_headers]
@@ -445,6 +447,15 @@ def _dashboard_from_database(
         "ga4_reports",
         {**current_filter, "dimension_headers": ["date"]},
     )
+    channel_report = _find_latest(
+        "ga4_reports", {**current_filter, "dimension_headers": [VISITOR_CHANNEL]},
+    )
+    visitor_channels = {}
+    for row in (channel_report or {}).get("rows", []):
+        channel = row.get("dimensions", {}).get(VISITOR_CHANNEL) or "Unspecified"
+        users = _number(row.get("metrics", {}).get("totalUsers"))
+        if users is not None and users > 0:
+            visitor_channels[channel] = visitor_channels.get(channel, 0) + users
     gsc_summary = _find_latest(
         "gsc_search_reports",
         {**current_filter, "dimensions": []},
@@ -586,6 +597,7 @@ def _dashboard_from_database(
             },
         },
         "kpis": kpis,
+        "visitor_channels": visitor_channels,
         "charts": {
             "gsc_daily": _gsc_daily_chart(gsc_daily),
             "ga4_daily": _ga4_daily_chart(ga4_daily),
@@ -661,6 +673,13 @@ def _refresh_ga4(
                 ["date"],
             )
         )
+    record_ids.append(
+        _fetch_and_store_ga4(
+            workspace_id, client_id, property_id, client,
+            start.isoformat(), end.isoformat(), [VISITOR_CHANNEL],
+            metrics=["totalUsers"],
+        )
+    )
     return record_ids
 
 
