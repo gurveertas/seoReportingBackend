@@ -31,6 +31,7 @@ class WorkspaceUpdateRequest(BaseModel):
 
     fullname: str | None = Field(default=None, min_length=1, max_length=120)
     openai_api_key: SecretStr | None = None
+    google_cloud_console_key: SecretStr | None = None
 
     @model_validator(mode="after")
     def validate_update_fields(self):

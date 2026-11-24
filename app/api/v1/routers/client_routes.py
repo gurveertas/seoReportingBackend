@@ -272,7 +272,7 @@ def get_current_user(user: dict[str, Any] = Depends(protect_route)):
     workspace_id = get_authenticated_workspace_id(user)
     workspace = get_database()["workspaces"].find_one(
         {"_id": ObjectId(workspace_id)},
-        {"username": 1, "fullname": 1, "openai_api_key_enc": 1},
+        {"username": 1, "fullname": 1, "openai_api_key_enc": 1, "google_cloud_console_key_enc": 1},
     )
     if not workspace:
         raise HTTPException(
@@ -299,6 +299,7 @@ def get_current_user(user: dict[str, Any] = Depends(protect_route)):
         "username": username,
         "fullname": fullname,
         "has_openai_api_key": bool(workspace.get("openai_api_key_enc")),
+        "has_google_cloud_console_key": bool(workspace.get("google_cloud_console_key_enc")),
     }
 
 
@@ -310,11 +311,13 @@ def update_current_user(
 ):
     workspace_id = get_authenticated_workspace_id(user)
     updates = workspace_update.model_dump(exclude_unset=True)
-    if "openai_api_key" in updates:
-        secret = updates.pop("openai_api_key")
+    for field in ("openai_api_key", "google_cloud_console_key"):
+        if field not in updates:
+            continue
+        secret = updates.pop(field)
         key = secret.get_secret_value().strip() if secret else ""
         try:
-            updates["openai_api_key_enc"] = encrypt_secret(key) if key else None
+            updates[f"{field}_enc"] = encrypt_secret(key) if key else None
         except TokenEncryptionError as error:
             raise HTTPException(503, "Workspace secret encryption is unavailable.") from error
     updates["updated_at"] = datetime.now(timezone.utc)
@@ -362,6 +365,7 @@ def update_current_user(
         "username": updated_workspace["username"],
         "fullname": updated_workspace["fullname"],
         "has_openai_api_key": bool(updated_workspace.get("openai_api_key_enc")),
+        "has_google_cloud_console_key": bool(updated_workspace.get("google_cloud_console_key_enc")),
     }
 
 

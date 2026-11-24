@@ -21,7 +21,7 @@ add the ones they want, and get a PDF report for each one every month.
    It skips reports that already exist, so it's safe to call every day.
 
 A user can connect several Google accounts (useful for agencies). Clients added
-manually by property URL/ID still work through the old service-account keys.
+manually can be linked by importing the matching website from a connected Google account.
 
 ## 1. Google Cloud setup (one time, by the project owner)
 

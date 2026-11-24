@@ -1,11 +1,9 @@
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.integrations.ga4.client import get_ga4_client
+from app.integrations.credentials import build_source_client
 from app.integrations.ga4.service import get_ga4_report
 from app.api.v1.routers.client_routes import (
     get_authenticated_workspace_id,
@@ -19,17 +17,6 @@ from app.requestModels.req_models import GA4ReportRequest
 
 logger = logging.getLogger(__name__)
 ga4_router = APIRouter(dependencies=[Depends(protect_route)])
-
-
-def _credentials_path() -> str:
-    default_path = (
-        Path(__file__).resolve().parents[3]
-        / "integrations"
-        / "ga4"
-        / "credentials"
-        / "service-account.json"
-    )
-    return os.getenv("GA4_CREDENTIALS_PATH", str(default_path))
 
 
 @ga4_router.get("/health")
@@ -57,8 +44,8 @@ def fetch_ga4_report(
         "ga4",
         "property_id",
     )
+    client = build_source_client(get_workspace_client(workspace_id, client_id), "ga4")
     try:
-        client = get_ga4_client(_credentials_path())
         response = get_ga4_report(
             client=client,
             property_id=property_id,

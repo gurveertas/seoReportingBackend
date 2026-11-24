@@ -247,8 +247,10 @@ class SiteImportTests(DatabaseTestCase):
 
 
 class CredentialResolverTests(DatabaseTestCase):
-    def test_client_without_connection_uses_service_account(self):
-        self.assertIsNone(user_credentials_for_client({"workspace_id": self.workspace_id}))
+    def test_client_without_connection_requires_google_oauth(self):
+        with self.assertRaises(HTTPException) as caught:
+            user_credentials_for_client({"workspace_id": self.workspace_id})
+        self.assertEqual(caught.exception.status_code, 409)
 
     def test_disconnected_account_gives_clear_error(self):
         with self.assertRaises(HTTPException) as caught:

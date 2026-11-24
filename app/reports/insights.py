@@ -4,10 +4,7 @@ import math
 import os
 
 import requests
-from bson import ObjectId
 
-from app.core.security import decrypt_secret, TokenEncryptionError
-from app.database.connection import get_database
 
 from app.reports.formatting import report_number, report_position
 
@@ -23,20 +20,6 @@ _METRICS = {
     "ga4_sessions": ("Traffic", "Website sessions"),
     "ga4_screenPageViews": ("Engagement", "Page views"),
 }
-
-
-def workspace_openai_key(workspace_id: str) -> str | None:
-    workspace = get_database()["workspaces"].find_one(
-        {"_id": ObjectId(workspace_id)}, {"openai_api_key_enc": 1}
-    )
-    encrypted = (workspace or {}).get("openai_api_key_enc")
-    if not encrypted:
-        return None
-    try:
-        return decrypt_secret(encrypted)
-    except TokenEncryptionError:
-        logger.warning("Workspace insights unavailable: key decryption failed.")
-        return None
 
 
 def report_signals(kpis, hide_comparison, token):

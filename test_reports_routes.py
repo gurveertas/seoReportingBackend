@@ -12,7 +12,7 @@ from app.main import app
 
 class ReportsRouteTests(unittest.TestCase):
     def setUp(self):
-        key_lookup = patch("app.api.v1.routers.reports_routes.workspace_openai_key", return_value=None)
+        key_lookup = patch("app.api.v1.routers.reports_routes.workspace_secret", return_value=None)
         key_lookup.start()
         self.addCleanup(key_lookup.stop)
 

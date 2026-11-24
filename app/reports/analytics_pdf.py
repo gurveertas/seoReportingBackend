@@ -410,6 +410,7 @@ def generate_analytics_pdf(
     comparison: bool = False,
     next_plans: list[str] | None = None,
     openai_api_key: str | None = None,
+    google_cloud_console_key: str | None = None,
 ) -> bytes:
     _register_fonts()
     output = io.BytesIO()
@@ -686,7 +687,9 @@ def generate_analytics_pdf(
             _paragraph(f"No stored data for {missing}.", styles["body"]),
         ])
 
-    story.extend(pagespeed_section(site_url, styles["section_heading"], styles["body"]))
+    story.extend(pagespeed_section(
+        site_url, styles["section_heading"], styles["body"], api_key=google_cloud_console_key
+    ))
 
     plans = [plan.strip() for plan in next_plans or [] if plan.strip()]
     if plans:

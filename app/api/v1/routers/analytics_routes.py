@@ -10,11 +10,6 @@ from app.api.v1.routers.client_routes import (
     get_client_integration_property,
     get_workspace_client,
 )
-from app.api.v1.routers.ga4_routes import _credentials_path as ga4_credentials_path
-from app.api.v1.routers.gsc_routes import _credentials_path as gsc_credentials_path
-from app.api.v1.routers.google_sheets_routes import (
-    _credentials_path as sheets_credentials_path,
-)
 from app.database.connection import get_database
 from app.integrations.credentials import build_source_client
 from app.integrations.ga4.service import get_ga4_report
@@ -645,7 +640,7 @@ def _refresh_ga4(
         "property_id",
     )
     client = build_source_client(
-        get_workspace_client(workspace_id, client_id), "ga4", ga4_credentials_path()
+        get_workspace_client(workspace_id, client_id), "ga4"
     )
     record_ids = []
     for period_start, period_end in ((start, end), (previous_start, previous_end)):
@@ -698,7 +693,7 @@ def _refresh_gsc(
         "property_url",
     )
     client = build_source_client(
-        get_workspace_client(workspace_id, client_id), "gsc", gsc_credentials_path()
+        get_workspace_client(workspace_id, client_id), "gsc"
     )
     record_ids = []
     for period_start, period_end in ((start, end), (previous_start, previous_end)):
@@ -749,7 +744,7 @@ def _refresh_sheets(workspace_id: str, client_id: str):
         "property_id",
     )
     client = build_source_client(
-        get_workspace_client(workspace_id, client_id), "google_sheets", sheets_credentials_path()
+        get_workspace_client(workspace_id, client_id), "google_sheets"
     )
     values = get_sheet_data(
         service=client,

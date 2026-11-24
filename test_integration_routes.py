@@ -22,9 +22,13 @@ class IntegrationRouteTests(unittest.TestCase):
         self.workspace_id = str(ObjectId())
         self.client_id = str(ObjectId())
         self.user = {"workspace_id": self.workspace_id}
+        for module in ("ga4_routes", "gsc_routes", "google_sheets_routes"):
+            lookup = patch(f"app.api.v1.routers.{module}.get_workspace_client")
+            lookup.start()
+            self.addCleanup(lookup.stop)
 
     @patch("app.api.v1.routers.ga4_routes.get_ga4_report")
-    @patch("app.api.v1.routers.ga4_routes.get_ga4_client")
+    @patch("app.api.v1.routers.ga4_routes.build_source_client")
     @patch("app.api.v1.routers.ga4_routes.get_client_integration_property")
     @patch("app.api.v1.routers.ga4_routes.get_database")
     def test_ga4_report_is_saved_with_workspace_and_client_scope(
@@ -84,7 +88,7 @@ class IntegrationRouteTests(unittest.TestCase):
         self.assertEqual(stored_record["property_id"], "db-property-1")
 
     @patch("app.api.v1.routers.google_sheets_routes.get_sheet_data")
-    @patch("app.api.v1.routers.google_sheets_routes.get_sheets_client")
+    @patch("app.api.v1.routers.google_sheets_routes.build_source_client")
     @patch(
         "app.api.v1.routers.google_sheets_routes.get_client_integration_property"
     )
@@ -128,7 +132,7 @@ class IntegrationRouteTests(unittest.TestCase):
 
     @patch("app.api.v1.routers.gsc_routes.get_workspace_client")
     @patch("app.api.v1.routers.gsc_routes.get_gsc_sites")
-    @patch("app.api.v1.routers.gsc_routes.get_gsc_client")
+    @patch("app.api.v1.routers.gsc_routes.build_source_client")
     @patch("app.api.v1.routers.gsc_routes.get_database")
     def test_gsc_sites_are_saved_for_the_selected_client(
         self,
@@ -155,7 +159,7 @@ class IntegrationRouteTests(unittest.TestCase):
         get_sites.assert_called_once_with(get_client.return_value)
 
     @patch("app.api.v1.routers.gsc_routes.get_search_performance")
-    @patch("app.api.v1.routers.gsc_routes.get_gsc_client")
+    @patch("app.api.v1.routers.gsc_routes.build_source_client")
     @patch("app.api.v1.routers.gsc_routes.get_client_integration_property")
     @patch("app.api.v1.routers.gsc_routes.get_database")
     def test_gsc_search_performance_is_scoped_to_the_selected_client(

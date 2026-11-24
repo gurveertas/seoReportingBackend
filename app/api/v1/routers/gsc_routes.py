@@ -1,11 +1,9 @@
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.integrations.gsc.client import get_gsc_client
+from app.integrations.credentials import build_source_client
 from app.integrations.gsc.service import get_search_performance, get_gsc_sites
 from app.api.v1.routers.client_routes import (
     get_authenticated_workspace_id,
@@ -40,17 +38,6 @@ def save_gsc_data(data: GSCDocument):
     )
 
 
-def _credentials_path() -> str:
-    default_path = (
-        Path(__file__).resolve().parents[3]
-        / "integrations"
-        / "gsc"
-        / "credentials"
-        / "service-account.json"
-    )
-    return os.getenv("GSC_CREDENTIALS_PATH", str(default_path))
-
-
 @gsc_router.get('/health')
 async def get_gsc_health(
     client_id: str,
@@ -69,9 +56,8 @@ def fetch_gsc_sites(
     user: dict[str, Any] = Depends(protect_route),
 ):
     workspace_id = get_authenticated_workspace_id(user)
-    get_workspace_client(workspace_id, client_id)
+    client = build_source_client(get_workspace_client(workspace_id, client_id), "gsc")
     try:
-        client = get_gsc_client(_credentials_path())
         sites = get_gsc_sites(client)
     except Exception as error:
         logger.exception("GSC sites request failed")
@@ -112,8 +98,8 @@ def fetch_gsc_search_performance(
         "gsc",
         "property_url",
     )
+    client = build_source_client(get_workspace_client(workspace_id, client_id), "gsc")
     try:
-        client = get_gsc_client(_credentials_path())
         rows = get_search_performance(
             service=client,
             site_url=site_url,

@@ -1,11 +1,9 @@
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.integrations.googleSheets.client import get_sheets_client
+from app.integrations.credentials import build_source_client
 from app.integrations.googleSheets.service import get_sheet_data
 from app.api.v1.routers.client_routes import (
     get_authenticated_workspace_id,
@@ -19,17 +17,6 @@ from app.requestModels.req_models import SheetsDataRequest
 
 logger = logging.getLogger(__name__)
 google_sheets_router = APIRouter(dependencies=[Depends(protect_route)])
-
-
-def _credentials_path() -> str:
-    default_path = (
-        Path(__file__).resolve().parents[3]
-        / "integrations"
-        / "googleSheets"
-        / "credentials"
-        / "service-account.json"
-    )
-    return os.getenv("GOOGLE_SHEETS_CREDENTIALS_PATH", str(default_path))
 
 
 @google_sheets_router.get("/health")
@@ -57,8 +44,8 @@ def fetch_sheet_values(
         "google_sheets",
         "property_id",
     )
+    client = build_source_client(get_workspace_client(workspace_id, client_id), "google_sheets")
     try:
-        client = get_sheets_client(_credentials_path())
         values = get_sheet_data(
             service=client,
             spreadsheet_id=spreadsheet_id,
