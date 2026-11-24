@@ -1,5 +1,6 @@
 import os
 from html import escape
+from urllib.parse import urlsplit
 
 import requests
 from reportlab.platypus import Paragraph
@@ -8,12 +9,25 @@ from reportlab.platypus import Paragraph
 def pagespeed_section(property_url, heading_style, body_style):
     """Build a point-in-time mobile Lighthouse summary for a report."""
     section = [Paragraph("PageSpeed Insights", heading_style)]
-    key = os.getenv("PAGESPEED_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    key = next((value.strip() for name in (
+        "GOOGLE_CLOUD_CONSOLE_KEY", "PAGESPEED_API_KEY", "PAGESPEED_INSIGHTS_API_KEY",
+        "PAGE_SPEED_API_KEY", "GOOGLE_API_KEY",
+    ) if (value := os.getenv(name, "")).strip()), None)
     url = str(property_url or "").strip()
     if url.startswith("sc-domain:"):
-        url = "https://" + url.removeprefix("sc-domain:") + "/"
-    if not key or not url.startswith(("https://", "http://")):
-        section.append(Paragraph("Mobile audit unavailable for this report.", body_style))
+        url = "https://" + url.removeprefix("sc-domain:").rstrip("/") + "/"
+    elif url and "://" not in url:
+        url = "https://" + url
+    try:
+        target = urlsplit(url)
+        valid = target.scheme in ("https", "http") and target.hostname and not any(c.isspace() for c in url)
+    except ValueError:
+        valid = False
+    if not valid:
+        section.append(Paragraph("Mobile audit unavailable: the client needs a valid Search Console website URL.", body_style))
+        return section
+    if not key:
+        section.append(Paragraph("Mobile audit unavailable: the report server has no PageSpeed API key configured.", body_style))
         return section
 
     try:
