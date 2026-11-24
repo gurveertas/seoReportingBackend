@@ -382,6 +382,7 @@ def generate_analytics_pdf(
     *,
     comparison: bool = False,
     next_plans: list[str] | None = None,
+    openai_api_key: str | None = None,
 ) -> bytes:
     _register_fonts()
     output = io.BytesIO()
@@ -543,30 +544,31 @@ def generate_analytics_pdf(
     )
     story: list[Flowable] = [banner]
     kpis = dashboard.get("kpis", [])
-    signals = report_signals(kpis, comparison)
-    heading = "Period highlights" if comparison else "Positive Signals"
-    story.append(Paragraph(heading, styles["section_heading"]))
-    if signals:
-        category_style = ParagraphStyle("SignalCategory", parent=styles["body"],
-                                        fontName=_FONT_BOLD, fontSize=7, leading=10, spaceAfter=2, textColor=_GREEN)
-        title_style = ParagraphStyle("SignalTitle", parent=styles["body"], fontName=_FONT_BOLD,
-                                     fontSize=11, leading=14, spaceBefore=0, spaceAfter=3)
-        cards = []
-        for signal in signals:
-            detail = " ".join(filter(None, [signal["fact"], signal.get("meaning")]))
-            cards.append([
-                _paragraph(signal["category"].upper(), category_style),
-                _paragraph(signal["title"], title_style),
-                _paragraph(detail, styles["body"]),
-            ])
-        for index in range(0, len(cards), 2):
-            story.append(_panel_row(cards[index:index + 2], content_width, metric_cards=True,
-                                    background=colors.HexColor("#E4F4E9")))
+    if openai_api_key:
+        signals = report_signals(kpis, comparison, openai_api_key)
+        heading = "Period highlights" if comparison else "Positive Signals"
+        story.append(Paragraph(heading, styles["section_heading"]))
+        if signals:
+            category_style = ParagraphStyle("SignalCategory", parent=styles["body"],
+                                            fontName=_FONT_BOLD, fontSize=7, leading=10, spaceAfter=2, textColor=_GREEN)
+            title_style = ParagraphStyle("SignalTitle", parent=styles["body"], fontName=_FONT_BOLD,
+                                         fontSize=11, leading=14, spaceBefore=0, spaceAfter=3)
+            cards = []
+            for signal in signals:
+                detail = " ".join(filter(None, [signal["fact"], signal.get("meaning")]))
+                cards.append([
+                    _paragraph(signal["category"].upper(), category_style),
+                    _paragraph(signal["title"], title_style),
+                    _paragraph(detail, styles["body"]),
+                ])
+            for index in range(0, len(cards), 2):
+                story.append(_panel_row(cards[index:index + 2], content_width, metric_cards=True,
+                                        background=colors.HexColor("#E4F4E9")))
 
-    else:
-        message = ("No highlights are available for this reporting period." if comparison else
-                   "No verified improvements are available for the selected periods.")
-        story.append(_paragraph(message, styles["body"]))
+        else:
+            message = ("No highlights are available for this reporting period." if comparison else
+                       "No verified improvements are available for the selected periods.")
+            story.append(_paragraph(message, styles["body"]))
 
     story.append(Paragraph("Performance indicators", styles["section_heading"]))
     if any(kpi.get("value") is not None for kpi in kpis):

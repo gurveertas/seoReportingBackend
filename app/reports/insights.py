@@ -4,6 +4,10 @@ import math
 import os
 
 import requests
+from bson import ObjectId
+
+from app.core.security import decrypt_secret, TokenEncryptionError
+from app.database.connection import get_database
 
 from app.reports.formatting import report_number, report_position
 
@@ -21,7 +25,21 @@ _METRICS = {
 }
 
 
-def report_signals(kpis, hide_comparison):
+def workspace_openai_key(workspace_id: str) -> str | None:
+    workspace = get_database()["workspaces"].find_one(
+        {"_id": ObjectId(workspace_id)}, {"openai_api_key_enc": 1}
+    )
+    encrypted = (workspace or {}).get("openai_api_key_enc")
+    if not encrypted:
+        return None
+    try:
+        return decrypt_secret(encrypted)
+    except TokenEncryptionError:
+        logger.warning("Workspace insights unavailable: key decryption failed.")
+        return None
+
+
+def report_signals(kpis, hide_comparison, token):
     signals = {}
     for kpi in kpis:
         key = kpi.get("key")
@@ -51,7 +69,6 @@ def report_signals(kpis, hide_comparison):
                 fact = f"Improved from {formatter(previous)}{unit} to {value}."
         signals[key] = {"category": category, "title": title, "fact": fact}
 
-    token = os.getenv("OPENAI_API_KEY")
     if not signals or not token:
         return list(signals.values())
 

@@ -15,6 +15,7 @@ from app.api.v1.routers.analytics_routes import (
 )
 from app.api.v1.routers.client_routes import get_workspace_client
 from app.middlewares.protect_route import protect_route
+from app.reports.insights import workspace_openai_key
 from app.reports.analytics_pdf import generate_analytics_pdf
 from app.reports.storage import (
     ReportGenerationError,
@@ -69,7 +70,8 @@ def _report_response(
         dashboard = _dashboard_from_database(workspace_id, client_id, period, month_start)
     client_name = dashboard["client"]["name"]
     pdf_content = generate_analytics_pdf(
-        dashboard, period, client_name, comparison=comparison, next_plans=next_plans
+        dashboard, period, client_name, comparison=comparison, next_plans=next_plans,
+        openai_api_key=workspace_openai_key(workspace_id),
     )
     period_data = dashboard.get("period", {})
     start_date = period_data.get("start_date", "report")

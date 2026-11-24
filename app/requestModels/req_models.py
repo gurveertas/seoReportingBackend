@@ -5,6 +5,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
     field_validator,
     model_validator,
 )
@@ -29,14 +30,16 @@ class WorkspaceUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fullname: str | None = Field(default=None, min_length=1, max_length=120)
+    openai_api_key: SecretStr | None = None
 
     @model_validator(mode="after")
     def validate_update_fields(self):
         if not self.model_fields_set:
             raise ValueError("At least one workspace field must be provided.")
-        if self.fullname is None or not self.fullname.strip():
-            raise ValueError("fullname cannot be empty.")
-        self.fullname = self.fullname.strip()
+        if "fullname" in self.model_fields_set:
+            if self.fullname is None or not self.fullname.strip():
+                raise ValueError("fullname cannot be empty.")
+            self.fullname = self.fullname.strip()
         return self
 
 

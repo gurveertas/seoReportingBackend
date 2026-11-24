@@ -18,6 +18,7 @@ from app.requestModels.req_models import (
 )
 from app.database.connection import get_database
 from app.models.client import Client
+from app.core.security import encrypt_secret, TokenEncryptionError
 from app.models.workspace import Workspace
 from app.middlewares.protect_route import protect_route
 import jwt
@@ -271,7 +272,7 @@ def get_current_user(user: dict[str, Any] = Depends(protect_route)):
     workspace_id = get_authenticated_workspace_id(user)
     workspace = get_database()["workspaces"].find_one(
         {"_id": ObjectId(workspace_id)},
-        {"username": 1, "fullname": 1},
+        {"username": 1, "fullname": 1, "openai_api_key_enc": 1},
     )
     if not workspace:
         raise HTTPException(
@@ -297,6 +298,7 @@ def get_current_user(user: dict[str, Any] = Depends(protect_route)):
         "workspace_id": workspace_id,
         "username": username,
         "fullname": fullname,
+        "has_openai_api_key": bool(workspace.get("openai_api_key_enc")),
     }
 
 
@@ -308,6 +310,13 @@ def update_current_user(
 ):
     workspace_id = get_authenticated_workspace_id(user)
     updates = workspace_update.model_dump(exclude_unset=True)
+    if "openai_api_key" in updates:
+        secret = updates.pop("openai_api_key")
+        key = secret.get_secret_value().strip() if secret else ""
+        try:
+            updates["openai_api_key_enc"] = encrypt_secret(key) if key else None
+        except TokenEncryptionError as error:
+            raise HTTPException(503, "Workspace secret encryption is unavailable.") from error
     updates["updated_at"] = datetime.now(timezone.utc)
 
     workspace_collection = get_database()["workspaces"]
@@ -352,6 +361,7 @@ def update_current_user(
         "workspace_id": workspace_id,
         "username": updated_workspace["username"],
         "fullname": updated_workspace["fullname"],
+        "has_openai_api_key": bool(updated_workspace.get("openai_api_key_enc")),
     }
 
 

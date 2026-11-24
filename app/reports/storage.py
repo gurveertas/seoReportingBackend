@@ -17,6 +17,7 @@ import requests
 from bson import ObjectId
 
 from app.database.connection import get_database
+from app.reports.insights import workspace_openai_key
 from app.reports.analytics_pdf import generate_analytics_pdf
 
 logger = logging.getLogger(__name__)
@@ -142,7 +143,8 @@ def generate_monthly_report(
         if dashboard.get("sources", {}).get("gsc", {}).get("status") != "available":
             raise ReportGenerationError("No Search Console data is stored for this month yet.")
         pdf_bytes = generate_analytics_pdf(
-            dashboard, "monthly", client["name"], comparison=comparison, next_plans=next_plans
+            dashboard, "monthly", client["name"], comparison=comparison, next_plans=next_plans,
+            openai_api_key=workspace_openai_key(workspace_id),
         )
     except ReportGenerationError as error:
         _log_run(workspace_id, client_id, month, "failed", started, trigger, str(error))
