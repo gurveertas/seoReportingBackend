@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import reportlab
+from app.reports.insights import report_signals
 from app.reports.pagespeed import pagespeed_section
 
 from reportlab.lib import colors
@@ -268,6 +269,7 @@ def _panel_row(
     width: float,
     *,
     metric_cards: bool = False,
+    background: colors.Color = _PALE,
 ) -> Table:
     panel_width = (width - _GUTTER * (len(panels) - 1)) / len(panels)
     cells = []
@@ -291,7 +293,7 @@ def _panel_row(
         for index in range(0, len(cells), 2):
             cell = (index, 0)
             commands.extend([
-                ("BACKGROUND", cell, cell, _PALE),
+                ("BACKGROUND", cell, cell, background),
                 ("BOX", cell, cell, 0.6, _GRID),
             ])
     return Table(
@@ -544,6 +546,25 @@ def generate_analytics_pdf(
             )
     else:
         story.append(Paragraph("No KPI data is stored for this period.", styles["body"]))
+
+    signals = report_signals(kpis, comparison)
+    if signals:
+        heading = "Period highlights" if comparison else "Positive Signals"
+        story.append(Paragraph(heading, styles["section_heading"]))
+        category_style = ParagraphStyle("SignalCategory", parent=styles["body"],
+                                        fontName=_FONT_BOLD, fontSize=7, textColor=_GREEN)
+        title_style = ParagraphStyle("SignalTitle", parent=styles["body"], fontName=_FONT_BOLD)
+        cards = []
+        for signal in signals:
+            detail = " ".join(filter(None, [signal["fact"], signal.get("meaning")]))
+            cards.append([
+                _paragraph(signal["category"].upper(), category_style),
+                _paragraph(signal["title"], title_style),
+                _paragraph(detail, styles["body"]),
+            ])
+        for index in range(0, len(cards), 2):
+            story.append(_panel_row(cards[index:index + 2], content_width, metric_cards=True,
+                                    background=colors.HexColor("#E4F4E9")))
 
     chart_flowables = []
     palette = [
