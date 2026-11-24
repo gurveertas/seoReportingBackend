@@ -281,7 +281,7 @@ def _panel_row(
         cells.append(panel)
         widths.append(panel_width)
 
-    padding = 7 if metric_cards else 0
+    padding = 9 if metric_cards else 0
     commands = [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), padding),
@@ -294,7 +294,7 @@ def _panel_row(
             cell = (index, 0)
             commands.extend([
                 ("BACKGROUND", cell, cell, background),
-                ("BOX", cell, cell, 0.6, _GRID),
+                ("LINEBEFORE", cell, cell, 2, _TEAL),
             ])
     return Table(
         [cells], colWidths=widths, hAlign="LEFT", spaceAfter=_GUTTER,
@@ -507,8 +507,8 @@ def generate_analytics_pdf(
                 )
             ],
             [
-                _paragraph(
-                    "  |  ".join(subtitle_parts),
+                Paragraph(
+                    escape(subtitle_parts[0]) + "<br/>" + escape("  |  ".join(subtitle_parts[1:])),
                     styles["banner_subtitle"],
                 )
             ],
@@ -532,28 +532,16 @@ def generate_analytics_pdf(
             ]
         )
     )
-    story: list[Flowable] = [
-        banner,
-        Paragraph("Performance indicators", styles["section_heading"]),
-    ]
-
+    story: list[Flowable] = [banner]
     kpis = dashboard.get("kpis", [])
-    if any(kpi.get("value") is not None for kpi in kpis):
-        for index in range(0, len(kpis), 4):
-            cards = [_make_kpi_card(kpi, styles, comparison) for kpi in kpis[index : index + 4]]
-            story.append(
-                _panel_row(cards, content_width, metric_cards=True)
-            )
-    else:
-        story.append(Paragraph("No KPI data is stored for this period.", styles["body"]))
-
     signals = report_signals(kpis, comparison)
+    heading = "Period highlights" if comparison else "Positive Signals"
+    story.append(Paragraph(heading, styles["section_heading"]))
     if signals:
-        heading = "Period highlights" if comparison else "Positive Signals"
-        story.append(Paragraph(heading, styles["section_heading"]))
         category_style = ParagraphStyle("SignalCategory", parent=styles["body"],
-                                        fontName=_FONT_BOLD, fontSize=7, textColor=_GREEN)
-        title_style = ParagraphStyle("SignalTitle", parent=styles["body"], fontName=_FONT_BOLD)
+                                        fontName=_FONT_BOLD, fontSize=7, leading=10, spaceAfter=2, textColor=_GREEN)
+        title_style = ParagraphStyle("SignalTitle", parent=styles["body"], fontName=_FONT_BOLD,
+                                     fontSize=11, leading=14, spaceBefore=0, spaceAfter=3)
         cards = []
         for signal in signals:
             detail = " ".join(filter(None, [signal["fact"], signal.get("meaning")]))
@@ -565,6 +553,21 @@ def generate_analytics_pdf(
         for index in range(0, len(cards), 2):
             story.append(_panel_row(cards[index:index + 2], content_width, metric_cards=True,
                                     background=colors.HexColor("#E4F4E9")))
+
+    else:
+        message = ("No highlights are available for this reporting period." if comparison else
+                   "No verified improvements are available for the selected periods.")
+        story.append(_paragraph(message, styles["body"]))
+
+    story.append(Paragraph("Performance indicators", styles["section_heading"]))
+    if any(kpi.get("value") is not None for kpi in kpis):
+        for index in range(0, len(kpis), 4):
+            cards = [_make_kpi_card(kpi, styles, comparison) for kpi in kpis[index : index + 4]]
+            story.append(
+                _panel_row(cards, content_width, metric_cards=True)
+            )
+    else:
+        story.append(Paragraph("No KPI data is stored for this period.", styles["body"]))
 
     chart_flowables = []
     palette = [
