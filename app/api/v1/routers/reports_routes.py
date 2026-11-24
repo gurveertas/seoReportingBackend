@@ -121,6 +121,16 @@ def get_monthly_report(
     return _report_response("monthly", client_id, user, month, comparison, next_plans)
 
 
+@reports_router.post("/monthly", response_class=StreamingResponse)
+def create_monthly_pdf(
+    client_id: str,
+    payload: ReportGenerateRequest | None = None,
+    user: dict[str, Any] = Depends(protect_route),
+) -> StreamingResponse:
+    result = generate_and_store_monthly_report(client_id, payload, user)
+    return download_report(client_id, result["report"]["report_id"], user)
+
+
 @reports_router.get("/weekly", response_class=StreamingResponse)
 def get_weekly_report(
     client_id: str,
