@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import reportlab
+from app.reports.formatting import report_number
 from app.reports.insights import report_signals
 from app.reports.pagespeed import pagespeed_section
 
@@ -88,10 +89,8 @@ def _format_number(value: Any) -> str:
         return "No data"
     if isinstance(value, bool):
         return str(value)
-    if isinstance(value, int):
-        return f"{value:,}"
-    if isinstance(value, float):
-        return f"{value:,.2f}".rstrip("0").rstrip(".")
+    if isinstance(value, (int, float)):
+        return report_number(value)
     return _safe_text(value)
 
 
@@ -105,10 +104,10 @@ def _kpi_change_text(kpi: dict[str, Any]) -> str:
         if trend == "steady":
             return "No change in position"
         wording = "better" if trend == "up" else "worse"
-        return f"{abs(change):.2f} positions {wording}"
+        return f"{report_number(abs(change))} positions {wording}"
     if unit == "percentage_points":
-        return f"{change:+.2f} percentage points"
-    return f"{change:+.2f}% vs previous period"
+        return f"{report_number(change, signed=True)} percentage points"
+    return f"{report_number(change, signed=True)}% vs previous period"
 
 
 class _LineChart(Flowable):
@@ -328,7 +327,7 @@ def _data_table(
             for column in columns
         ],
     ] + [
-        [_paragraph(row.get(column, ""), cell_style) for column in columns]
+        [_paragraph(_format_number(row[column]) if isinstance(row.get(column), (int, float)) else row.get(column, ""), cell_style) for column in columns]
         for row in rows
     ]
     column_widths = [available_width / len(columns)] * len(columns)
