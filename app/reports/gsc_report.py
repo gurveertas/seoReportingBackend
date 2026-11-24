@@ -1,7 +1,7 @@
 from html import escape
 from pathlib import Path
 
-from app.reports.formatting import report_number
+from app.reports.formatting import report_number, report_position
 from app.reports.pagespeed import pagespeed_section
 
 from reportlab.graphics.charts.barcharts import VerticalBarChart
@@ -77,7 +77,7 @@ def generate_gsc_pdf(data, output_path="reports/seo_report.pdf"):
     clicks = f"{metrics.clicks:,}"
     impressions = f"{metrics.impressions:,}"
     ctr = f"{report_number(metrics.ctr * 100)}%"
-    position = report_number(metrics.position)
+    position = report_position(metrics.position)
     kpis = Table(
         [
             ["Clicks", "Impressions", "Click-through rate", "Average position"],

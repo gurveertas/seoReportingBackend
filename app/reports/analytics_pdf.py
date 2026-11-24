@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import reportlab
-from app.reports.formatting import report_number
+from app.reports.formatting import report_number, report_position
 from app.reports.insights import report_signals
 from app.reports.pagespeed import pagespeed_section
 
@@ -251,7 +251,8 @@ def _make_kpi_card(kpi: dict[str, Any], styles, hide_comparison: bool) -> list[P
     label_style = ParagraphStyle(
         "AnalyticsKpiSource", parent=styles["kpi_label"], textColor=card_accent
     )
-    value = _format_number(kpi.get("value"))
+    formatter = report_position if kpi.get("key") == "gsc_position" else _format_number
+    value = formatter(kpi.get("value"))
     if kpi.get("key") == "gsc_ctr" and kpi.get("value") is not None:
         value += "%"
     paragraphs = [
@@ -301,6 +302,15 @@ def _panel_row(
     )
 
 
+def _table_value(column, value):
+    name = str(column).lower().replace("_", "").replace(" ", "").replace(".", "")
+    if name in {"position", "avgposition", "averageposition", "averagesearchposition"}:
+        return report_position(value)
+    if isinstance(value, (int, float)):
+        return _format_number(value)
+    return value
+
+
 def _data_table(
     title: str,
     data: dict[str, Any],
@@ -327,7 +337,7 @@ def _data_table(
             for column in columns
         ],
     ] + [
-        [_paragraph(_format_number(row[column]) if isinstance(row.get(column), (int, float)) else row.get(column, ""), cell_style) for column in columns]
+        [_paragraph(_table_value(column, row.get(column, "")), cell_style) for column in columns]
         for row in rows
     ]
     column_widths = [available_width / len(columns)] * len(columns)

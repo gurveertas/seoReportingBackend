@@ -5,7 +5,7 @@ import os
 
 import requests
 
-from app.reports.formatting import report_number
+from app.reports.formatting import report_number, report_position
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,8 @@ def report_signals(kpis, hide_comparison):
             continue
         previous = kpi.get("previous_value")
         unit = "%" if key == "gsc_ctr" else ""
-        value = f"{report_number(current)}{unit}"
+        formatter = report_position if key == "gsc_position" else report_number
+        value = f"{formatter(current)}{unit}"
         category, title = _METRICS[key]
         if hide_comparison:
             if current <= 0:
@@ -42,9 +43,12 @@ def report_signals(kpis, hide_comparison):
             improved = current < previous if key == "gsc_position" else current > previous
             if not improved or (key == "gsc_position" and min(previous, current) <= 0):
                 continue
-            if report_number(previous) == report_number(current):
+            if key == "gsc_position" and formatter(previous) == formatter(current):
+                fact = f"Average position improved by less than 0.1 to {value}."
+            elif formatter(previous) == formatter(current):
                 continue
-            fact = f"Improved from {report_number(previous)}{unit} to {value}."
+            else:
+                fact = f"Improved from {formatter(previous)}{unit} to {value}."
         signals[key] = {"category": category, "title": title, "fact": fact}
 
     token = os.getenv("OPENAI_API_KEY")
